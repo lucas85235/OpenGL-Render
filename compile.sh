@@ -34,7 +34,7 @@ check_package assimp || missing_deps=1
 check_package glm || missing_deps=1
 
 # Verificar stb_image.h
-if [ -f "stb_image.h" ]; then
+if [ -f "src/renderer/stb_image.h" ]; then
     echo -e "  ${GREEN}✓${NC} stb_image.h"
 else
     echo -e "  ${RED}✗${NC} stb_image.h ${RED}(não encontrado)${NC}"

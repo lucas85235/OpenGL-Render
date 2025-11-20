@@ -7,9 +7,9 @@
 #include <iostream>
 #include <memory>
 
-#include "shader.hpp"
-#include "model.hpp"
-#include "framebuffer.hpp"
+#include "src/renderer/shader.hpp"
+#include "src/renderer/model.hpp"
+#include "src/renderer/framebuffer.hpp"
 
 // Configurações
 const unsigned int SCR_WIDTH = 1280;
@@ -29,6 +29,9 @@ std::unique_ptr<FrameBuffer> fb;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
+    if (fb) {
+        fb->Resize(width, height);
+    }
 }
 
 void processInput(GLFWwindow *window) {
@@ -59,9 +62,6 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    // Capturar o mouse (opcional)
-    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
     // Inicializar GLEW
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) {
@@ -76,8 +76,16 @@ int main() {
     // Compilar shaders
     Shader modelShader;
     if (!modelShader.CompileFromSource(ShaderSource::ModelVertexShader,
-                                        ShaderSource::ModelFragmentShader)) {
+                                        ShaderSource::ModelFragmentShaderNoTexture)) {
         std::cerr << "Falha ao compilar shader do modelo!" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
+
+    Shader screenShader;
+    if (!screenShader.CompileFromSource(ShaderSource::ScreenVertexShader,
+                                         ShaderSource::ScreenFragmentShader)) {
+        std::cerr << "Falha ao compilar shader da tela!" << std::endl;
         glfwTerminate();
         return -1;
     }
@@ -103,13 +111,42 @@ int main() {
         return -1;
     }
 
+    // Criar quad para renderizar a textura do framebuffer
+    float quadVertices[] = {
+        // Posições  // TexCoords
+        -1.0f,  1.0f,  0.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+        
+        -1.0f,  1.0f,  0.0f, 1.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f
+    };
+
+    unsigned int quadVAO, quadVBO;
+    glGenVertexArrays(1, &quadVAO);
+    glGenBuffers(1, &quadVBO);
+    
+    glBindVertexArray(quadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+    
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
     std::cout << "\n=== CONTROLES ===" << std::endl;
     std::cout << "ESC - Sair" << std::endl;
     std::cout << "==================\n" << std::endl;
 
-    fb = std::make_unique<FrameBuffer>();
-    fb->Init();
-    glEnable(GL_DEPTH_TEST);
+    // Inicializar framebuffer
+    fb = std::make_unique<FrameBuffer>(SCR_WIDTH, SCR_HEIGHT);
+    if (!fb->Init()) {
+        std::cerr << "Falha ao inicializar framebuffer!" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
 
     // Loop de renderização
     while (!glfwWindowShouldClose(window)) {
@@ -121,16 +158,16 @@ int main() {
         // Input
         processInput(window);
 
-        // Bind framebuffer
+        // ==========================================
+        // PASSO 1: Renderizar modelo no framebuffer
+        // ==========================================
         fb->Bind();
         glEnable(GL_DEPTH_TEST);
 
-        // Renderizar
-        // glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
         glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Ativar shader
+        // Ativar shader do modelo
         modelShader.Use();
 
         // Matrizes de view e projeção
@@ -154,9 +191,14 @@ int main() {
         modelShader.SetVec3("lightPos", 1.2f, 1.0f, 2.0f);
         modelShader.SetVec3("viewPos", cameraPos.x, cameraPos.y, cameraPos.z);
         modelShader.SetVec3("lightColor", 1.0f, 1.0f, 1.0f);
-        modelShader.SetVec3("objectColor", 1.0f, 0.5f, 0.31f);
+        modelShader.SetVec3("objectColor", 0.2f, 1.0f, 0.2f);
 
-        // Bind framebuffer
+        // Desenhar modelo NO FRAMEBUFFER
+        model->Draw(modelShader.GetProgramID());
+
+        // ==========================================
+        // PASSO 2: Renderizar framebuffer na tela
+        // ==========================================
         fb->Unbind();
 
         int display_w, display_h;
@@ -164,12 +206,17 @@ int main() {
         glViewport(0, 0, display_w, display_h);
         
         glDisable(GL_DEPTH_TEST);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Desenhar modelo
-        model->Draw(modelShader.GetProgramID());
+        // Ativar shader da tela
+        screenShader.Use();
+        screenShader.SetInt("screenTexture", 0);
 
+        // Desenhar quad com a textura do framebuffer
+        glBindVertexArray(quadVAO);
         glBindTexture(GL_TEXTURE_2D, fb->GetTexture());
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -177,6 +224,9 @@ int main() {
 
     // Limpeza
     std::cout << "Encerrando aplicação..." << std::endl;
+    glDeleteVertexArrays(1, &quadVAO);
+    glDeleteBuffers(1, &quadVBO);
+    
     glfwTerminate();
     return 0;
 }
