@@ -27,7 +27,9 @@ private:
             aiProcess_Triangulate | 
             aiProcess_FlipUVs | 
             aiProcess_CalcTangentSpace |
-            aiProcess_GenNormals);
+            aiProcess_GenNormals |
+            aiProcess_EmbedTextures
+        );
 
         if(!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
             std::cerr << "Erro ao carregar modelo (Assimp): " 
@@ -108,22 +110,22 @@ private:
 
             // Texturas difusas
             std::vector<Texture> diffuseMaps = loadMaterialTextures(material,
-                aiTextureType_DIFFUSE, "texture_diffuse");
+                aiTextureType_DIFFUSE, "texture_diffuse", scene);
             textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
 
             // Texturas especulares
             std::vector<Texture> specularMaps = loadMaterialTextures(material,
-                aiTextureType_SPECULAR, "texture_specular");
+                aiTextureType_SPECULAR, "texture_specular", scene);
             textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
 
             // Texturas normais
             std::vector<Texture> normalMaps = loadMaterialTextures(material,
-                aiTextureType_HEIGHT, "texture_normal");
+                aiTextureType_HEIGHT, "texture_normal", scene);
             textures.insert(textures.end(), normalMaps.begin(), normalMaps.end());
 
             // Texturas de altura
             std::vector<Texture> heightMaps = loadMaterialTextures(material,
-                aiTextureType_AMBIENT, "texture_height");
+                aiTextureType_AMBIENT, "texture_height", scene);
             textures.insert(textures.end(), heightMaps.begin(), heightMaps.end());
         }
 
@@ -131,7 +133,7 @@ private:
     }
 
     std::vector<Texture> loadMaterialTextures(aiMaterial *mat, aiTextureType type, 
-                                               std::string typeName) {
+                                               std::string typeName, const aiScene* scene) {
         std::vector<Texture> textures;
         
         for(unsigned int i = 0; i < mat->GetTextureCount(type); i++) {
@@ -144,13 +146,15 @@ private:
                 if(std::strcmp(textures_loaded[j].path.data(), str.C_Str()) == 0) {
                     textures.push_back(textures_loaded[j]);
                     skip = true;
+                    std::cout << "TEXTURE: " << textures_loaded[j].id << std::endl;
+
                     break;
                 }
             }
             
             if(!skip) {
                 Texture texture;
-                texture.id = TextureFromFile(str.C_Str(), directory);
+                texture.id = TextureFromFile(str.C_Str(), directory, scene);
                 texture.type = typeName;
                 texture.path = str.C_Str();
                 textures.push_back(texture);
@@ -161,14 +165,48 @@ private:
         return textures;
     }
 
-    unsigned int TextureFromFile(const char *path, const std::string &directory) {
-        std::string filename = directory + '/' + std::string(path);
-
+    unsigned int TextureFromFile(const char *path, const std::string &directory, const aiScene* scene) {
         unsigned int textureID;
         glGenTextures(1, &textureID);
 
         int width, height, nrComponents;
-        unsigned char *data = stbi_load(filename.c_str(), &width, &height, &nrComponents, 0);
+        unsigned char *data = nullptr;
+
+        std::string filename = std::string(path);
+        
+        // VERIFICAÇÃO DE TEXTURA EMBUTIDA (GLB/GLTF)
+        if (filename.length() > 0 && filename[0] == '*') {
+            // É um índice de textura embutida (ex: "*0")
+            int textureIndex = std::stoi(filename.substr(1));
+            
+            if (textureIndex < scene->mNumTextures) {
+                aiTexture* aiTex = scene->mTextures[textureIndex];
+                
+                if (aiTex->mHeight == 0) {
+                    // Textura comprimida (png/jpg dentro do binário)
+                    std::cout << "Carregando textura embutida comprimida (Index " << textureIndex << ")" << std::endl;
+                    data = stbi_load_from_memory(
+                        reinterpret_cast<unsigned char*>(aiTex->pcData),
+                        aiTex->mWidth,
+                        &width, &height, &nrComponents, 0
+                    );
+                } else {
+                    // Textura bruta (ARGB8888)
+                    std::cout << "Carregando textura embutida RAW (Index " << textureIndex << ")" << std::endl;
+                    data = stbi_load_from_memory(
+                        reinterpret_cast<unsigned char*>(aiTex->pcData),
+                        aiTex->mWidth * aiTex->mHeight * 4, // Tamanho aproximado
+                        &width, &height, &nrComponents, 0
+                    );
+                }
+            }
+        } else {
+            // LÓGICA PADRÃO PARA ARQUIVOS NO DISCO
+            filename = directory + '/' + filename;
+            std::cout << "Tentando carregar do disco: " << filename << std::endl;
+            data = stbi_load(filename.c_str(), &width, &height, &nrComponents, 0);
+            // std::cout << "MODEL: " << filename << std::endl;
+        }
         
         if (data) {
             GLenum format;
@@ -183,15 +221,15 @@ private:
             glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
             glGenerateMipmap(GL_TEXTURE_2D);
 
+            // Parâmetros de wrapping/filter
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
             stbi_image_free(data);
-            std::cout << "Textura carregada: " << filename << std::endl;
         } else {
-            std::cerr << "Falha ao carregar textura: " << filename << std::endl;
+            std::cerr << "Falha ao carregar textura: " << path << std::endl;
             stbi_image_free(data);
         }
 

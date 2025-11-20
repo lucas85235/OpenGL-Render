@@ -2,6 +2,7 @@
 #define MESH_HPP
 
 #include <GL/glew.h>
+#include <iostream>
 #include <vector>
 #include <glm/glm.hpp>
 #include <string>
@@ -83,6 +84,7 @@ public:
             
             std::string number;
             std::string name = textures[i].type;
+
             if(name == "texture_diffuse")
                 number = std::to_string(diffuseNr++);
             else if(name == "texture_specular")
@@ -91,6 +93,9 @@ public:
                 number = std::to_string(normalNr++);
             else if(name == "texture_height")
                 number = std::to_string(heightNr++);
+
+            // Debug model textures
+            // std::cout << "TEXTURE: " << (name + number).c_str() << " - " << textures[i].id << "/" << textures.size() << std::endl;
 
             glUniform1i(glGetUniformLocation(shaderProgram, (name + number).c_str()), i);
             glBindTexture(GL_TEXTURE_2D, textures[i].id);

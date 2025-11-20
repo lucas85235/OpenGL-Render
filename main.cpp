@@ -16,7 +16,7 @@ const unsigned int SCR_WIDTH = 1280;
 const unsigned int SCR_HEIGHT = 720;
 
 // Câmera
-glm::vec3 cameraPos = glm::vec3(0.0f, 1.0f, -3.0f);
+glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, -3.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, 1.0f);
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
@@ -76,7 +76,7 @@ int main() {
     // Compilar shaders
     Shader modelShader;
     if (!modelShader.CompileFromSource(ShaderSource::ModelVertexShader,
-                                        ShaderSource::ModelFragmentShaderNoTexture)) {
+                                        ShaderSource::ModelFragmentShader)) {
         std::cerr << "Falha ao compilar shader do modelo!" << std::endl;
         glfwTerminate();
         return -1;
@@ -99,7 +99,7 @@ int main() {
 
     std::unique_ptr<Model> model;
     try {
-        model = std::make_unique<Model>("models/backpack/backpack.obj");
+        model = std::make_unique<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
     } catch (const std::exception& e) {
         std::cerr << "Erro ao carregar modelo: " << e.what() << std::endl;
         std::cout << "\nNão foi possível carregar o modelo." << std::endl;
@@ -180,7 +180,7 @@ int main() {
         modelShader.SetMat4("projection", glm::value_ptr(projection));
 
         // Matriz de modelo (escala e posição)
-        glm::mat4 modelMatrix = glm::mat4(0.1f);
+        glm::mat4 modelMatrix = glm::mat4(0.5f);
         modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 0.0f, 0.0f));
         modelMatrix = glm::scale(modelMatrix, glm::vec3(1.0f, 1.0f, 1.0f));
         modelMatrix = glm::rotate(modelMatrix, (float)glfwGetTime() * 0.3f, 
