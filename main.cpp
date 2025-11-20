@@ -1,24 +1,92 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-#include <iostream>
-#include <cmath>
-#include <memory>
-#include "framebuffer.hpp"
-#include "shader.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
-// Variável global para o framebuffer (para redimensionar)
-std::unique_ptr<FrameBuffer> g_framebuffer;
+#include <iostream>
+#include <memory>
+
+#include "shader.hpp"
+#include "model.hpp"
+
+// Configurações
+const unsigned int SCR_WIDTH = 1280;
+const unsigned int SCR_HEIGHT = 720;
+
+// Câmera
+glm::vec3 cameraPos = glm::vec3(0.0f, 1.0f, -3.0f);
+glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, 1.0f);
+glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+
+float lastX = SCR_WIDTH / 2.0f;
+float lastY = SCR_HEIGHT / 2.0f;
+float yaw = -90.0f;
+float pitch = 0.0f;
+bool firstMouse = true;
+
+// Timing
+float deltaTime = 0.0f;
+float lastFrame = 0.0f;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
-    if (g_framebuffer) {
-        g_framebuffer->Resize(width, height);
-    }
 }
 
-void processInput(GLFWwindow* window) {
+void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    return;
+
+    if (firstMouse) {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
+
+    float xoffset = xpos - lastX;
+    float yoffset = lastY - ypos;
+    lastX = xpos;
+    lastY = ypos;
+
+    float sensitivity = 0.1f;
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
+
+    yaw += xoffset;
+    pitch += yoffset;
+
+    if (pitch > 89.0f)
+        pitch = 89.0f;
+    if (pitch < -89.0f)
+        pitch = -89.0f;
+
+    glm::vec3 direction;
+    direction.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+    direction.y = sin(glm::radians(pitch));
+    direction.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+    cameraFront = glm::normalize(direction);
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    cameraPos += cameraFront * static_cast<float>(yoffset) * 0.5f;
+}
+
+void processInput(GLFWwindow *window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+
+    // float cameraSpeed = 2.5f * deltaTime;
+    // if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+    //     cameraPos += cameraSpeed * cameraFront;
+    // if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+    //     cameraPos -= cameraSpeed * cameraFront;
+    // if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+    //     cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+    // if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+    //     cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+    // if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+    //     cameraPos += cameraSpeed * cameraUp;
+    // if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+    //     cameraPos -= cameraSpeed * cameraUp;
 }
 
 int main() {
@@ -27,225 +95,129 @@ int main() {
         std::cerr << "Falha ao inicializar GLFW" << std::endl;
         return -1;
     }
-    
+
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Framebuffer OpenGL", NULL, NULL);
+    glfwWindowHint(GLFW_SAMPLES, 4); // Anti-aliasing
+
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, 
+                                          "Model Loading - OpenGL", NULL, NULL);
     if (!window) {
         std::cerr << "Falha ao criar janela GLFW" << std::endl;
         glfwTerminate();
         return -1;
     }
-    
+
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetScrollCallback(window, scroll_callback);
+
+    // Capturar o mouse
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
     // Inicializar GLEW
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) {
         std::cerr << "Falha ao inicializar GLEW" << std::endl;
         return -1;
     }
-    
-    // Compilar shaders usando a classe Shader
-    Shader cubeShader;
-    if (!cubeShader.CompileFromSource(ShaderSource::CubeVertexShader, 
-                                       ShaderSource::CubeFragmentShader)) {
-        std::cerr << "Falha ao compilar shader do cubo!" << std::endl;
+
+    // Configurar OpenGL
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_MULTISAMPLE);
+
+    // Compilar shaders
+    Shader modelShader;
+    if (!modelShader.CompileFromSource(ShaderSource::ModelVertexShader,
+                                        ShaderSource::ModelFragmentShader)) {
+        std::cerr << "Falha ao compilar shader do modelo!" << std::endl;
         glfwTerminate();
         return -1;
     }
-    
-    Shader screenShader;
-    if (!screenShader.CompileFromSource(ShaderSource::ScreenVertexShader, 
-                                         ShaderSource::ScreenFragmentShader)) {
-        std::cerr << "Falha ao compilar shader da tela!" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    
+
     std::cout << "Shaders compilados com sucesso!" << std::endl;
+
+    // Carregar modelo
+    std::cout << "\nCarregando modelo..." << std::endl;
+    std::cout << "IMPORTANTE: Coloque seu modelo .obj na pasta 'models/'" << std::endl;
+    std::cout << "Exemplo: models/backpack/backpack.obj" << std::endl;
     
-    // Vértices do cubo
-    float cubeVertices[] = {
-        // Posições          // Texturas
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-         0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-        
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-         0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-        
-        -0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-        
-         0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-         0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-        
-        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  1.0f, 1.0f,
-         0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-        
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-         0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-         0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f
-    };
-    
-    // Quad da tela (cobre toda a tela)
-    float quadVertices[] = {
-        // Posições  // Texturas
-        -1.0f,  1.0f,  0.0f, 1.0f,
-        -1.0f, -1.0f,  0.0f, 0.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
-        
-        -1.0f,  1.0f,  0.0f, 1.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
-         1.0f,  1.0f,  1.0f, 1.0f
-    };
-    
-    // Setup VAO/VBO do cubo
-    unsigned int cubeVAO, cubeVBO;
-    glGenVertexArrays(1, &cubeVAO);
-    glGenBuffers(1, &cubeVBO);
-    
-    glBindVertexArray(cubeVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
-    
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    
-    // Setup VAO/VBO do quad
-    unsigned int quadVAO, quadVBO;
-    glGenVertexArrays(1, &quadVAO);
-    glGenBuffers(1, &quadVBO);
-    
-    glBindVertexArray(quadVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
-    
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    
-    // Inicializar framebuffer
-    g_framebuffer = std::make_unique<FrameBuffer>(800, 600);
-    if (!g_framebuffer->Init()) {
-        std::cerr << "Falha ao inicializar framebuffer!" << std::endl;
+    // Tente carregar um modelo (ajuste o caminho conforme necessário)
+    std::unique_ptr<Model> model;
+    try {
+        // Tente carregar backpack (modelo comum nos tutoriais)
+        model = std::make_unique<Model>("models/backpack/backpack.obj");
+    } catch (const std::exception& e) {
+        std::cerr << "Erro ao carregar modelo: " << e.what() << std::endl;
+        std::cout << "\nNão foi possível carregar o modelo." << std::endl;
+        std::cout << "Baixe um modelo .obj e coloque em 'models/'" << std::endl;
+        std::cout << "Sugestões de modelos gratuitos:" << std::endl;
+        std::cout << "- https://sketchfab.com/feed (filtrar por downloadable)" << std::endl;
+        std::cout << "- https://free3d.com/" << std::endl;
         glfwTerminate();
         return -1;
     }
-    
-    std::cout << "Iniciando loop de renderização..." << std::endl;
-    
+
+    std::cout << "\n=== CONTROLES ===" << std::endl;
+    std::cout << "WASD - Mover câmera" << std::endl;
+    std::cout << "Mouse - Olhar ao redor" << std::endl;
+    std::cout << "Scroll - Zoom in/out" << std::endl;
+    std::cout << "Space - Subir" << std::endl;
+    std::cout << "Shift - Descer" << std::endl;
+    std::cout << "ESC - Sair" << std::endl;
+    std::cout << "==================\n" << std::endl;
+
     // Loop de renderização
     while (!glfwWindowShouldClose(window)) {
-        processInput(window);
-        
-        // ==========================================
-        // PASSO 1: Renderizar cena no framebuffer
-        // ==========================================
-        g_framebuffer->Bind();
-        
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        
-        cubeShader.Use();
-        
-        // Matrizes de transformação
-        float time = glfwGetTime();
-        float model[16] = {
-            static_cast<float>(cos(time)), 0, static_cast<float>(sin(time)), 0,
-            0, 1, 0, 0,
-            static_cast<float>(-sin(time)), 0, static_cast<float>(cos(time)), 0,
-            0, 0, 0, 1
-        };
-        
-        float view[16] = {
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            0, 0, -3, 1
-        };
-        
-        float aspect = 800.0f / 600.0f;
-        float fov = 45.0f * 3.14159f / 180.0f;
-        float f = 1.0f / tan(fov / 2.0f);
-        float projection[16] = {
-            f/aspect, 0, 0, 0,
-            0, f, 0, 0,
-            0, 0, -1.002f, -1,
-            0, 0, -0.2002f, 0
-        };
-        
-        cubeShader.SetMat4("model", model);
-        cubeShader.SetMat4("view", view);
-        cubeShader.SetMat4("projection", projection);
-        
-        glBindVertexArray(cubeVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        // Frame timing
+        float currentFrame = glfwGetTime();
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
 
-        // ==========================================
-        // PASSO 2: Renderizar textura na tela
-        // ==========================================
-        g_framebuffer->Unbind();
-        
-        // Resetar viewport para o tamanho da janela
-        int display_w, display_h;
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        
-        glDisable(GL_DEPTH_TEST);
-        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        
-        screenShader.Use();
-        screenShader.SetInt("screenTexture", 0);
-        
-        glBindVertexArray(quadVAO);
-        glBindTexture(GL_TEXTURE_2D, g_framebuffer->GetTexture());
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        
+        // Input
+        processInput(window);
+
+        // Renderizar
+        glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Ativar shader
+        modelShader.Use();
+
+        // Matrizes de view e projeção
+        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f),
+                                                (float)SCR_WIDTH / (float)SCR_HEIGHT,
+                                                0.1f, 100.0f);
+
+        modelShader.SetMat4("view", glm::value_ptr(view));
+        modelShader.SetMat4("projection", glm::value_ptr(projection));
+
+        // Matriz de modelo (escala e posição)
+        glm::mat4 modelMatrix = glm::mat4(0.1f);
+        modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 0.0f, 0.0f));
+        modelMatrix = glm::scale(modelMatrix, glm::vec3(1.0f, 1.0f, 1.0f));
+        modelMatrix = glm::rotate(modelMatrix, (float)glfwGetTime() * 0.3f, 
+                                  glm::vec3(0.0f, 1.0f, 0.0f));
+        modelShader.SetMat4("model", glm::value_ptr(modelMatrix));
+
+        // Configurar iluminação
+        modelShader.SetVec3("lightPos", 1.2f, 1.0f, 2.0f);
+        modelShader.SetVec3("viewPos", cameraPos.x, cameraPos.y, cameraPos.z);
+        modelShader.SetVec3("lightColor", 1.0f, 1.0f, 1.0f);
+        modelShader.SetVec3("objectColor", 1.0f, 0.5f, 0.31f);
+
+        // Desenhar modelo
+        model->Draw(modelShader.GetProgramID());
+
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
-    
+
     // Limpeza
     std::cout << "Encerrando aplicação..." << std::endl;
-    glDeleteVertexArrays(1, &cubeVAO);
-    glDeleteVertexArrays(1, &quadVAO);
-    glDeleteBuffers(1, &cubeVBO);
-    glDeleteBuffers(1, &quadVBO);
-    
-    // Os shaders e framebuffer serão limpos automaticamente pelos destrutores
-    g_framebuffer.reset();
-    
     glfwTerminate();
     return 0;
 }
