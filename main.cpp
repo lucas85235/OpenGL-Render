@@ -9,6 +9,7 @@
 
 #include "shader.hpp"
 #include "model.hpp"
+#include "framebuffer.hpp"
 
 // Configurações
 const unsigned int SCR_WIDTH = 1280;
@@ -19,74 +20,20 @@ glm::vec3 cameraPos = glm::vec3(0.0f, 1.0f, -3.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, 1.0f);
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
-float lastX = SCR_WIDTH / 2.0f;
-float lastY = SCR_HEIGHT / 2.0f;
-float yaw = -90.0f;
-float pitch = 0.0f;
-bool firstMouse = true;
-
 // Timing
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+
+// Framebuffer
+std::unique_ptr<FrameBuffer> fb;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
-void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
-    return;
-
-    if (firstMouse) {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
-
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos;
-    lastX = xpos;
-    lastY = ypos;
-
-    float sensitivity = 0.1f;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
-
-    yaw += xoffset;
-    pitch += yoffset;
-
-    if (pitch > 89.0f)
-        pitch = 89.0f;
-    if (pitch < -89.0f)
-        pitch = -89.0f;
-
-    glm::vec3 direction;
-    direction.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-    direction.y = sin(glm::radians(pitch));
-    direction.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-    cameraFront = glm::normalize(direction);
-}
-
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-    cameraPos += cameraFront * static_cast<float>(yoffset) * 0.5f;
-}
-
 void processInput(GLFWwindow *window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
-
-    // float cameraSpeed = 2.5f * deltaTime;
-    // if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-    //     cameraPos += cameraSpeed * cameraFront;
-    // if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-    //     cameraPos -= cameraSpeed * cameraFront;
-    // if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-    //     cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-    // if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-    //     cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-    // if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-    //     cameraPos += cameraSpeed * cameraUp;
-    // if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-    //     cameraPos -= cameraSpeed * cameraUp;
 }
 
 int main() {
@@ -111,11 +58,9 @@ int main() {
 
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    glfwSetCursorPosCallback(window, mouse_callback);
-    glfwSetScrollCallback(window, scroll_callback);
 
-    // Capturar o mouse
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    // Capturar o mouse (opcional)
+    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // Inicializar GLEW
     glewExperimental = GL_TRUE;
@@ -143,11 +88,9 @@ int main() {
     std::cout << "\nCarregando modelo..." << std::endl;
     std::cout << "IMPORTANTE: Coloque seu modelo .obj na pasta 'models/'" << std::endl;
     std::cout << "Exemplo: models/backpack/backpack.obj" << std::endl;
-    
-    // Tente carregar um modelo (ajuste o caminho conforme necessário)
+
     std::unique_ptr<Model> model;
     try {
-        // Tente carregar backpack (modelo comum nos tutoriais)
         model = std::make_unique<Model>("models/backpack/backpack.obj");
     } catch (const std::exception& e) {
         std::cerr << "Erro ao carregar modelo: " << e.what() << std::endl;
@@ -161,13 +104,12 @@ int main() {
     }
 
     std::cout << "\n=== CONTROLES ===" << std::endl;
-    std::cout << "WASD - Mover câmera" << std::endl;
-    std::cout << "Mouse - Olhar ao redor" << std::endl;
-    std::cout << "Scroll - Zoom in/out" << std::endl;
-    std::cout << "Space - Subir" << std::endl;
-    std::cout << "Shift - Descer" << std::endl;
     std::cout << "ESC - Sair" << std::endl;
     std::cout << "==================\n" << std::endl;
+
+    fb = std::make_unique<FrameBuffer>();
+    fb->Init();
+    glEnable(GL_DEPTH_TEST);
 
     // Loop de renderização
     while (!glfwWindowShouldClose(window)) {
@@ -179,8 +121,13 @@ int main() {
         // Input
         processInput(window);
 
+        // Bind framebuffer
+        fb->Bind();
+        glEnable(GL_DEPTH_TEST);
+
         // Renderizar
-        glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+        // glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+        glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // Ativar shader
@@ -209,8 +156,20 @@ int main() {
         modelShader.SetVec3("lightColor", 1.0f, 1.0f, 1.0f);
         modelShader.SetVec3("objectColor", 1.0f, 0.5f, 0.31f);
 
+        // Bind framebuffer
+        fb->Unbind();
+
+        int display_w, display_h;
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        
+        glDisable(GL_DEPTH_TEST);
+        glClear(GL_COLOR_BUFFER_BIT);
+
         // Desenhar modelo
         model->Draw(modelShader.GetProgramID());
+
+        glBindTexture(GL_TEXTURE_2D, fb->GetTexture());
 
         glfwSwapBuffers(window);
         glfwPollEvents();
