@@ -99,7 +99,7 @@ int main() {
 
     std::unique_ptr<Model> model;
     try {
-        model = std::make_unique<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
+        model = std::make_unique<Model>("models/others/texture_cube.fbx");
     } catch (const std::exception& e) {
         std::cerr << "Erro ao carregar modelo: " << e.what() << std::endl;
         std::cout << "\nNão foi possível carregar o modelo." << std::endl;
