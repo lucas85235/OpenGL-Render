@@ -62,7 +62,7 @@ echo -e "\n${YELLOW}Compilando...${NC}"
 # Flags de compilação
 SOURCES="main.cpp"
 OUTPUT="model_viewer"
-CXX_FLAGS="-std=c++17 -O2 -Wall"
+CXX_FLAGS="-std=c++17 -O2 -w"
 INCLUDES=""
 LIBS="-lGL -lGLEW -lglfw -lassimp -lpthread -ldl"
 

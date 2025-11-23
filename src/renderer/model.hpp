@@ -7,19 +7,26 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+// Garante que a implementação do STB só seja definida uma vez
+#ifndef STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#endif
 
 #include "mesh.hpp"
+#include "material.hpp"
+#include "texture.hpp"
+
 #include <string>
 #include <vector>
 #include <iostream>
+#include <map>
 
 class Model {
 private:
     std::vector<Mesh> meshes;
     std::string directory;
-    std::vector<Texture> textures_loaded;
+    // Não precisamos mais de textures_loaded local aqui, pois o TextureManager cuida do cache de arquivos
 
     void loadModel(std::string path) {
         Assimp::Importer importer;
@@ -40,18 +47,15 @@ private:
         directory = path.substr(0, path.find_last_of('/'));
         processNode(scene->mRootNode, scene);
         
-        std::cout << "Modelo carregado com sucesso: " << path << std::endl;
-        std::cout << "Total de meshes: " << meshes.size() << std::endl;
+        std::cout << "Modelo carregado: " << path << " (" << meshes.size() << " meshes)" << std::endl;
     }
 
     void processNode(aiNode *node, const aiScene *scene) {
-        // Processar todos os meshes do nó
         for(unsigned int i = 0; i < node->mNumMeshes; i++) {
             aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
             meshes.push_back(processMesh(mesh, scene));
         }
 
-        // Processar recursivamente os nós filhos
         for(unsigned int i = 0; i < node->mNumChildren; i++) {
             processNode(node->mChildren[i], scene);
         }
@@ -60,180 +64,131 @@ private:
     Mesh processMesh(aiMesh *mesh, const aiScene *scene) {
         std::vector<Vertex> vertices;
         std::vector<unsigned int> indices;
-        std::vector<Texture> textures;
 
-        // Processar vértices
+        // 1. Processar Vértices
         for(unsigned int i = 0; i < mesh->mNumVertices; i++) {
             Vertex vertex;
             
             // Posição
-            vertex.Position = glm::vec3(
-                mesh->mVertices[i].x,
-                mesh->mVertices[i].y,
-                mesh->mVertices[i].z
-            );
+            vertex.Position = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
 
             // Normal
             if(mesh->HasNormals()) {
-                vertex.Normal = glm::vec3(
-                    mesh->mNormals[i].x,
-                    mesh->mNormals[i].y,
-                    mesh->mNormals[i].z
-                );
+                vertex.Normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
             } else {
                 vertex.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
             }
 
-            // Coordenadas de textura
+            // TexCoords
             if(mesh->mTextureCoords[0]) {
-                vertex.TexCoords = glm::vec2(
-                    mesh->mTextureCoords[0][i].x,
-                    mesh->mTextureCoords[0][i].y
-                );
+                vertex.TexCoords = glm::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
             } else {
                 vertex.TexCoords = glm::vec2(0.0f, 0.0f);
+            }
+            
+            // Tangent & Bitangent (Útil para Normal Mapping)
+            if (mesh->HasTangentsAndBitangents()) {
+                vertex.Tangent = glm::vec3(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z);
+                vertex.Bitangent = glm::vec3(mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z);
             }
 
             vertices.push_back(vertex);
         }
 
-        // Processar índices
+        // 2. Processar Índices
         for(unsigned int i = 0; i < mesh->mNumFaces; i++) {
             aiFace face = mesh->mFaces[i];
             for(unsigned int j = 0; j < face.mNumIndices; j++)
                 indices.push_back(face.mIndices[j]);
         }
 
-        // Processar material
+        // 3. Processar Material
+        std::shared_ptr<Material> newMaterial = std::make_shared<Material>("AssimpMat_" + std::to_string(mesh->mMaterialIndex));
+
         if(mesh->mMaterialIndex >= 0) {
             aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
 
-            // Texturas difusas
-            std::vector<Texture> diffuseMaps = loadMaterialTextures(material,
-                aiTextureType_DIFFUSE, "texture_diffuse", scene);
-            textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
+            // --- Ler Propriedades Básicas (Cores, etc) ---
+            aiColor3D color(0.f, 0.f, 0.f);
+            float shininess;
 
-            // Texturas especulares
-            std::vector<Texture> specularMaps = loadMaterialTextures(material,
-                aiTextureType_SPECULAR, "texture_specular", scene);
-            textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
+            // Diffuse / Albedo
+            if (material->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
+                newMaterial->SetAlbedo(glm::vec3(color.r, color.g, color.b));
+                newMaterial->SetDiffuse(glm::vec3(color.r, color.g, color.b)); // Legado Phong
+            }
 
-            // Texturas normais
-            std::vector<Texture> normalMaps = loadMaterialTextures(material,
-                aiTextureType_HEIGHT, "texture_normal", scene);
-            textures.insert(textures.end(), normalMaps.begin(), normalMaps.end());
+            // Specular
+            if (material->Get(AI_MATKEY_COLOR_SPECULAR, color) == AI_SUCCESS) {
+                newMaterial->SetSpecular(glm::vec3(color.r, color.g, color.b));
+            }
 
-            // Texturas de altura
-            std::vector<Texture> heightMaps = loadMaterialTextures(material,
-                aiTextureType_AMBIENT, "texture_height", scene);
-            textures.insert(textures.end(), heightMaps.begin(), heightMaps.end());
+            // Shininess -> Roughness (Aproximação)
+            if (material->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS) {
+                newMaterial->SetShininess(shininess);
+                // Converter shininess (0-1000) para roughness (1-0)
+                float roughness = 1.0f - (sqrt(shininess) / sqrt(100.0f)); 
+                newMaterial->SetRoughness(glm::clamp(roughness, 0.05f, 1.0f));
+            }
+
+            // --- Carregar Texturas ---
+            loadMaterialTextures(newMaterial, material, aiTextureType_DIFFUSE, TextureType::DIFFUSE, scene);
+            loadMaterialTextures(newMaterial, material, aiTextureType_SPECULAR, TextureType::SPECULAR, scene);
+            loadMaterialTextures(newMaterial, material, aiTextureType_HEIGHT, TextureType::NORMAL, scene); // OBJ usa HEIGHT como Normal muitas vezes
+            loadMaterialTextures(newMaterial, material, aiTextureType_NORMALS, TextureType::NORMAL, scene);
+            loadMaterialTextures(newMaterial, material, aiTextureType_AMBIENT, TextureType::AO, scene);
+            loadMaterialTextures(newMaterial, material, aiTextureType_EMISSIVE, TextureType::EMISSION, scene);
+            
+            // PBR (GLTF usa nomes específicos ou mapeamentos)
+            // Assimp mais recente mapeia:
+            // metallicRoughnessTexture -> aiTextureType_UNKNOWN ou AI_MATKEY_GLTF_PBRMETALLICROUGHNESS...
+            // Por simplicidade, vamos manter o básico. Se precisar de PBR avançado do GLTF, precisa de checagem extra.
         }
 
-        return Mesh(vertices, indices, textures);
+        return Mesh(vertices, indices, newMaterial);
     }
 
-    std::vector<Texture> loadMaterialTextures(aiMaterial *mat, aiTextureType type, 
-                                               std::string typeName, const aiScene* scene) {
-        std::vector<Texture> textures;
+    void loadMaterialTextures(std::shared_ptr<Material> targetMat, aiMaterial *mat, 
+                              aiTextureType aiType, TextureType texType, const aiScene* scene) {
         
-        for(unsigned int i = 0; i < mat->GetTextureCount(type); i++) {
+        for(unsigned int i = 0; i < mat->GetTextureCount(aiType); i++) {
             aiString str;
-            mat->GetTexture(type, i, &str);
+            mat->GetTexture(aiType, i, &str);
+            std::string filename = std::string(str.C_Str());
             
-            // Verificar se a textura já foi carregada
-            bool skip = false;
-            for(unsigned int j = 0; j < textures_loaded.size(); j++) {
-                if(std::strcmp(textures_loaded[j].path.data(), str.C_Str()) == 0) {
-                    textures.push_back(textures_loaded[j]);
-                    skip = true;
-                    std::cout << "TEXTURE: " << textures_loaded[j].id << std::endl;
+            // VERIFICAÇÃO DE TEXTURA EMBUTIDA (GLB/GLTF)
+            if (filename.length() > 0 && filename[0] == '*') {
+                int textureIndex = std::stoi(filename.substr(1));
+                if (textureIndex < scene->mNumTextures) {
+                    aiTexture* aiTex = scene->mTextures[textureIndex];
+                    
+                    // Criar textura manualmente (bypass Manager para embutidas por enquanto)
+                    auto embeddedTex = std::make_shared<Texture>();
+                    
+                    int size = (aiTex->mHeight == 0) ? aiTex->mWidth : aiTex->mWidth * aiTex->mHeight * 4;
+                    
+                    bool loaded = embeddedTex->LoadFromMemory(
+                        reinterpret_cast<unsigned char*>(aiTex->pcData),
+                        size,
+                        texType
+                    );
 
-                    break;
+                    if (loaded) {
+                        targetMat->AddTexture(embeddedTex);
+                    }
                 }
-            }
-            
-            if(!skip) {
-                Texture texture;
-                texture.id = TextureFromFile(str.C_Str(), directory, scene);
-                texture.type = typeName;
-                texture.path = str.C_Str();
-                textures.push_back(texture);
-                textures_loaded.push_back(texture);
-            }
-        }
-        
-        return textures;
-    }
-
-    unsigned int TextureFromFile(const char *path, const std::string &directory, const aiScene* scene) {
-        unsigned int textureID;
-        glGenTextures(1, &textureID);
-
-        int width, height, nrComponents;
-        unsigned char *data = nullptr;
-
-        std::string filename = std::string(path);
-        
-        // VERIFICAÇÃO DE TEXTURA EMBUTIDA (GLB/GLTF)
-        if (filename.length() > 0 && filename[0] == '*') {
-            // É um índice de textura embutida (ex: "*0")
-            int textureIndex = std::stoi(filename.substr(1));
-            
-            if (textureIndex < scene->mNumTextures) {
-                aiTexture* aiTex = scene->mTextures[textureIndex];
+            } 
+            else {
+                // TEXTURA EM ARQUIVO
+                std::string fullPath = directory + '/' + filename;
                 
-                if (aiTex->mHeight == 0) {
-                    // Textura comprimida (png/jpg dentro do binário)
-                    std::cout << "Carregando textura embutida comprimida (Index " << textureIndex << ")" << std::endl;
-                    data = stbi_load_from_memory(
-                        reinterpret_cast<unsigned char*>(aiTex->pcData),
-                        aiTex->mWidth,
-                        &width, &height, &nrComponents, 0
-                    );
-                } else {
-                    // Textura bruta (ARGB8888)
-                    std::cout << "Carregando textura embutida RAW (Index " << textureIndex << ")" << std::endl;
-                    data = stbi_load_from_memory(
-                        reinterpret_cast<unsigned char*>(aiTex->pcData),
-                        aiTex->mWidth * aiTex->mHeight * 4, // Tamanho aproximado
-                        &width, &height, &nrComponents, 0
-                    );
+                // Usar TextureManager
+                auto tex = TextureManager::GetInstance().LoadTexture(fullPath, texType);
+                if (tex) {
+                    targetMat->AddTexture(tex);
                 }
             }
-        } else {
-            // LÓGICA PADRÃO PARA ARQUIVOS NO DISCO
-            filename = directory + '/' + filename;
-            std::cout << "Tentando carregar do disco: " << filename << std::endl;
-            data = stbi_load(filename.c_str(), &width, &height, &nrComponents, 0);
-            // std::cout << "MODEL: " << filename << std::endl;
         }
-        
-        if (data) {
-            GLenum format;
-            if (nrComponents == 1)
-                format = GL_RED;
-            else if (nrComponents == 3)
-                format = GL_RGB;
-            else if (nrComponents == 4)
-                format = GL_RGBA;
-
-            glBindTexture(GL_TEXTURE_2D, textureID);
-            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-            glGenerateMipmap(GL_TEXTURE_2D);
-
-            // Parâmetros de wrapping/filter
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-            stbi_image_free(data);
-        } else {
-            std::cerr << "Falha ao carregar textura: " << path << std::endl;
-            stbi_image_free(data);
-        }
-
-        return textureID;
     }
 
 public:
@@ -244,26 +199,6 @@ public:
     void Draw(unsigned int shaderProgram) {
         for(unsigned int i = 0; i < meshes.size(); i++)
             meshes[i].Draw(shaderProgram);
-    }
-
-    // Prevenir cópia
-    Model(const Model&) = delete;
-    Model& operator=(const Model&) = delete;
-
-    // Permitir movimentação
-    Model(Model&& other) noexcept
-        : meshes(std::move(other.meshes)),
-          directory(std::move(other.directory)),
-          textures_loaded(std::move(other.textures_loaded)) {
-    }
-
-    Model& operator=(Model&& other) noexcept {
-        if (this != &other) {
-            meshes = std::move(other.meshes);
-            directory = std::move(other.directory);
-            textures_loaded = std::move(other.textures_loaded);
-        }
-        return *this;
     }
 };
 

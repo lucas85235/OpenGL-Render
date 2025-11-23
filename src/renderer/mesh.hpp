@@ -2,26 +2,24 @@
 #define MESH_HPP
 
 #include <GL/glew.h>
-#include <iostream>
-#include <vector>
 #include <glm/glm.hpp>
+#include <vector>
 #include <string>
+#include <memory>
+#include "material.hpp"
 
 struct Vertex {
     glm::vec3 Position;
     glm::vec3 Normal;
     glm::vec2 TexCoords;
-};
-
-struct Texture {
-    unsigned int id;
-    std::string type;
-    std::string path;
+    glm::vec3 Tangent;
+    glm::vec3 Bitangent;
 };
 
 class Mesh {
 private:
     unsigned int VAO, VBO, EBO;
+    std::shared_ptr<Material> material;
     
     void setupMesh() {
         glGenVertexArrays(1, &VAO);
@@ -52,17 +50,31 @@ private:
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
                               (void*)offsetof(Vertex, TexCoords));
 
+        // Tangente
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                              (void*)offsetof(Vertex, Tangent));
+
+        // Bitangente
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                              (void*)offsetof(Vertex, Bitangent));
+
         glBindVertexArray(0);
     }
 
 public:
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
-    std::vector<Texture> textures;
 
-    Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, 
-         std::vector<Texture> textures)
-        : vertices(vertices), indices(indices), textures(textures) {
+    Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices,
+         std::shared_ptr<Material> mat = nullptr)
+        : vertices(vertices), indices(indices), material(mat) {
+        
+        if (!material) {
+            material = std::make_shared<Material>("Default");
+        }
+        
         setupMesh();
     }
 
@@ -73,32 +85,9 @@ public:
     }
 
     void Draw(unsigned int shaderProgram) {
-        // Bind texturas
-        unsigned int diffuseNr = 1;
-        unsigned int specularNr = 1;
-        unsigned int normalNr = 1;
-        unsigned int heightNr = 1;
-
-        for(unsigned int i = 0; i < textures.size(); i++) {
-            glActiveTexture(GL_TEXTURE0 + i);
-            
-            std::string number;
-            std::string name = textures[i].type;
-
-            if(name == "texture_diffuse")
-                number = std::to_string(diffuseNr++);
-            else if(name == "texture_specular")
-                number = std::to_string(specularNr++);
-            else if(name == "texture_normal")
-                number = std::to_string(normalNr++);
-            else if(name == "texture_height")
-                number = std::to_string(heightNr++);
-
-            // Debug model textures
-            // std::cout << "TEXTURE: " << (name + number).c_str() << " - " << textures[i].id << "/" << textures.size() << std::endl;
-
-            glUniform1i(glGetUniformLocation(shaderProgram, (name + number).c_str()), i);
-            glBindTexture(GL_TEXTURE_2D, textures[i].id);
+        // Aplicar material
+        if (material) {
+            material->Apply(shaderProgram);
         }
 
         // Desenhar mesh
@@ -106,7 +95,17 @@ public:
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
 
+        // Reset texture
         glActiveTexture(GL_TEXTURE0);
+    }
+
+    // Material management
+    void SetMaterial(std::shared_ptr<Material> mat) {
+        material = mat;
+    }
+
+    std::shared_ptr<Material> GetMaterial() const {
+        return material;
     }
 
     // Prevenir cópia
@@ -117,7 +116,7 @@ public:
     Mesh(Mesh&& other) noexcept
         : vertices(std::move(other.vertices)),
           indices(std::move(other.indices)),
-          textures(std::move(other.textures)),
+          material(std::move(other.material)),
           VAO(other.VAO), VBO(other.VBO), EBO(other.EBO) {
         other.VAO = 0;
         other.VBO = 0;
@@ -132,7 +131,7 @@ public:
 
             vertices = std::move(other.vertices);
             indices = std::move(other.indices);
-            textures = std::move(other.textures);
+            material = std::move(other.material);
             VAO = other.VAO;
             VBO = other.VBO;
             EBO = other.EBO;
