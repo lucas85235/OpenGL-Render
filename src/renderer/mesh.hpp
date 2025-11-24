@@ -99,6 +99,9 @@ public:
         glActiveTexture(GL_TEXTURE0);
     }
 
+    unsigned int GetVAO() const { return VAO; }
+    unsigned int GetIndexCount() const { return indices.size(); }
+
     // Material management
     void SetMaterial(std::shared_ptr<Material> mat) {
         material = mat;

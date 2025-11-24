@@ -1,13 +1,4 @@
-/*
- * EXEMPLO AVANÇADO - Sistema de Materiais Customizados
- * 
- * Este exemplo mostra como:
- * 1. Carregar modelos com materiais customizados
- * 2. Trocar materiais em runtime
- * 3. Usar materiais procedurais
- * 4. Aplicar texturas customizadas
- */
-
+#define STB_IMAGE_IMPLEMENTATION
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -17,278 +8,155 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <cmath>
 
+// Includes do sistema
 #include "src/renderer/shader.hpp"
 #include "src/renderer/model.hpp"
+#include "src/renderer/custom_shaders.hpp"
+#include "src/renderer/renderer.hpp"
 #include "src/renderer/framebuffer.hpp"
 #include "src/renderer/texture.hpp"
 #include "src/renderer/material.hpp"
-#include "src/renderer/custom_shaders.hpp"
+#include "src/renderer/model_factory.hpp"
 
+// Configurações
 const unsigned int SCR_WIDTH = 1280;
 const unsigned int SCR_HEIGHT = 720;
 
-// Câmera
-glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, -3.0f);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, 1.0f);
-glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
-
-// Timing
-float deltaTime = 0.0f;
-float lastFrame = 0.0f;
-
-// Framebuffer
+// Globais
+Renderer renderer;
 std::unique_ptr<FrameBuffer> fb;
+glm::vec3 cameraPos = glm::vec3(0.0f, 2.0f, 6.0f);
 
-// Controle de materiais
-int currentMaterialIndex = 0;
+// Controle de Input/Materiais
 std::vector<std::shared_ptr<Material>> materials;
-bool keyPressed = false;
+int currentMaterialIndex = 0;
+bool mKeyPressed = false;
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-    glViewport(0, 0, width, height);
-    if (fb) {
-        fb->Resize(width, height);
-    }
-}
+// --- LOGIC ---
 
 void processInput(GLFWwindow *window, Model* model) {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        std::cout << "[INPUT] ESC pressionado. Encerrando." << std::endl;
         glfwSetWindowShouldClose(window, true);
-    
-    // Trocar material com tecla M
-    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS && !keyPressed) {
-        keyPressed = true;
-        currentMaterialIndex = (currentMaterialIndex + 1) % materials.size();
-        
-        // Aplicar novo material a todos os meshes
-        model->SetMaterialAll(materials[currentMaterialIndex]);
-        
-        std::cout << "Material trocado para: " << materials[currentMaterialIndex]->GetName() << std::endl;
     }
     
-    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_RELEASE) {
-        keyPressed = false;
+    // Troca de Material (M)
+    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS && !mKeyPressed) {
+        mKeyPressed = true;
+        currentMaterialIndex = (currentMaterialIndex + 1) % materials.size();
+        
+        // Atualiza material
+        if(model) model->SetMaterialAll(materials[currentMaterialIndex]);
+        
+        std::cout << "[INPUT] Troca de Material -> " << materials[currentMaterialIndex]->GetName() << std::endl;
+    }
+    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_RELEASE) mKeyPressed = false;
+    
+    // Controles de Câmera (Simples)
+    float speed = 2.5f * 0.016f; // DeltaTime fixo aprox
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) cameraPos.z -= speed;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) cameraPos.z += speed;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) cameraPos.x -= speed;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) cameraPos.x += speed;
+}
+
+void setupMaterials(const std::unique_ptr<Model>& model) {
+    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreateGold()));
+    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreateSilver()));
+    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreatePlastic())); // Vermelho
+    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreateRubber())); // Preto
+    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreateEmissive(glm::vec3(0,1,1), 5.0f))); // Cyan Neon
+
+    if (model->GetMeshCount() > 0) {
+        materials.push_back(model->GetMesh(0).GetMaterial());
     }
 }
 
 int main() {
-    // Inicializar GLFW
-    if (!glfwInit()) {
-        std::cerr << "Falha ao inicializar GLFW" << std::endl;
-        return -1;
-    }
-
+    // 1. Inicialização
+    if (!glfwInit()) return -1;
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_SAMPLES, 4);
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, 
-                                          "Advanced Materials - OpenGL", NULL, NULL);
-    if (!window) {
-        std::cerr << "Falha ao criar janela GLFW" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Engine: Render Pass & Framebuffer", NULL, NULL);
+    if (!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    // Inicializar GLEW
     glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) {
-        std::cerr << "Falha ao inicializar GLEW" << std::endl;
-        return -1;
-    }
+    if (glewInit() != GLEW_OK) return -1;
 
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_MULTISAMPLE);
-
-    // Compilar shader PBR customizado
+    // 2. Setup Renderer e Framebuffer
     Shader pbrShader;
-    if (!pbrShader.CompileFromSource(CustomShaders::AdvancedVertexShader,
-                                     CustomShaders::CustomMaterialFragmentShader)) {
-        std::cerr << "Falha ao compilar shader PBR!" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
+    if (!pbrShader.CompileFromSource(CustomShaders::AdvancedVertexShader, 
+                                     CustomShaders::CustomMaterialFragmentShader)) return -1;
 
     Shader screenShader;
-    if (!screenShader.CompileFromSource(ShaderSource::ScreenVertexShader,
-                                         ShaderSource::ScreenFragmentShader)) {
-        std::cerr << "Falha ao compilar shader da tela!" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
+    if (!screenShader.CompileFromSource(ShaderSource::ScreenVertexShader, 
+                                        ShaderSource::ScreenFragmentShader)) return -1;
 
-    std::cout << "Shaders compilados com sucesso!" << std::endl;
-
-    // Carregar modelo com materiais customizados
-    std::cout << "\nCarregando modelo..." << std::endl;
-    std::unique_ptr<Model> model;
-    try {
-        model = std::make_unique<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
-    } catch (const std::exception& e) {
-        std::cerr << "Erro ao carregar modelo: " << e.what() << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-
-    // Criar biblioteca de materiais para trocar
-    std::cout << "\n=== CRIANDO MATERIAIS ===" << std::endl;
+    renderer.Init(&pbrShader);
     
-    // Material 1: Ouro
-    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreateGold()));
-    std::cout << "Material 1: Ouro" << std::endl;
-    
-    // Material 2: Prata
-    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreateSilver()));
-    std::cout << "Material 2: Prata" << std::endl;
-    
-    // Material 3: Cobre
-    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreateCopper()));
-    std::cout << "Material 3: Cobre" << std::endl;
-    
-    // Material 4: Plástico vermelho
-    auto plasticMaterial = std::make_shared<Material>(MaterialLibrary::CreatePlastic());
-    plasticMaterial->SetAlbedo(glm::vec3(1.0f, 0.0f, 0.0f));
-    plasticMaterial->SetName("Plástico Vermelho");
-    materials.push_back(plasticMaterial);
-    std::cout << "Material 4: Plástico Vermelho" << std::endl;
-    
-    // Material 5: Borracha preta
-    materials.push_back(std::make_shared<Material>(MaterialLibrary::CreateRubber()));
-    std::cout << "Material 5: Borracha" << std::endl;
-    
-    // Material 6: Emissivo verde
-    auto emissiveMaterial = std::make_shared<Material>(
-        MaterialLibrary::CreateEmissive(glm::vec3(0.0f, 1.0f, 0.0f), 3.0f)
-    );
-    emissiveMaterial->SetName("Neon Verde");
-    materials.push_back(emissiveMaterial);
-    std::cout << "Material 6: Neon Verde" << std::endl;
-    
-    // Material 7: Original do modelo (com texturas)
-    if (model->GetMeshCount() > 0) {
-        auto originalMaterial = model->GetMesh(0).GetMaterial();
-        if (originalMaterial) {
-            originalMaterial->SetName("Original (Texturas)");
-            materials.push_back(originalMaterial);
-            std::cout << "Material 7: Original (Texturas)" << std::endl;
-        }
-    }
-
-    // Criar quad para framebuffer
-    float quadVertices[] = {
-        -1.0f,  1.0f,  0.0f, 1.0f,
-        -1.0f, -1.0f,  0.0f, 0.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
-        -1.0f,  1.0f,  0.0f, 1.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
-         1.0f,  1.0f,  1.0f, 1.0f
-    };
-
-    unsigned int quadVAO, quadVBO;
-    glGenVertexArrays(1, &quadVAO);
-    glGenBuffers(1, &quadVBO);
-    glBindVertexArray(quadVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    std::cout << "\n=== CONTROLES ===" << std::endl;
-    std::cout << "M   - Trocar material" << std::endl;
-    std::cout << "ESC - Sair" << std::endl;
-    std::cout << "==================\n" << std::endl;
-
-    // Inicializar framebuffer
     fb = std::make_unique<FrameBuffer>(SCR_WIDTH, SCR_HEIGHT);
-    if (!fb->Init()) {
-        std::cerr << "Falha ao inicializar framebuffer!" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
+    fb->Init();
 
-    // Aplicar primeiro material
-    model->SetMaterialAll(materials[currentMaterialIndex]);
-    std::cout << "Material inicial: " << materials[currentMaterialIndex]->GetName() << std::endl;
+    // 3. Carregar Assets
+    std::unique_ptr<Model> shipModel = std::make_unique<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
+    Mesh floorMesh = ModelFactory::CreatePlaneMesh(1.0f);
+    auto floorMat = std::make_shared<Material>(MaterialLibrary::CreateRubber());
+    floorMat->SetAlbedo(glm::vec3(1.0f, 1.0f, 1.0f)); 
+    floorMesh.SetMaterial(floorMat);
 
-    // Loop de renderização
+    setupMaterials(shipModel);
+    if(shipModel) shipModel->SetMaterialAll(materials[0]);
+
+    std::cout << "=== ENGINE PRONTA ===" << std::endl;
+    std::cout << "[INPUT] WASD para mover camera, M para trocar material" << std::endl;
+
+    // 4. Render Loop
     while (!glfwWindowShouldClose(window)) {
-        float currentFrame = glfwGetTime();
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
+        processInput(window, shipModel.get());
 
-        processInput(window, model.get());
-
-        // PASSO 1: Renderizar no framebuffer
+        // --- PASS 1: Renderizar Cena para Framebuffer ---
         fb->Bind();
-        glEnable(GL_DEPTH_TEST);
-        glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+        glClearColor(0.1f, 0.1f, 0.15f, 1.0f); // Cor de fundo do espaço
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        pbrShader.Use();
-
-        // Matrizes
-        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f),
-                                                (float)SCR_WIDTH / (float)SCR_HEIGHT,
-                                                0.1f, 100.0f);
-        pbrShader.SetMat4("view", glm::value_ptr(view));
-        pbrShader.SetMat4("projection", glm::value_ptr(projection));
-
-        glm::mat4 modelMatrix = glm::mat4(0.4f);
-        modelMatrix = glm::rotate(modelMatrix, (float)glfwGetTime() * 0.3f, 
-                                  glm::vec3(0.0f, 1.0f, 0.0f));
-        pbrShader.SetMat4("model", glm::value_ptr(modelMatrix));
-
-        // Iluminação
-        pbrShader.SetVec3("lightPos", 3.0f, 3.0f, 3.0f);
-        pbrShader.SetVec3("viewPos", cameraPos.x, cameraPos.y, cameraPos.z);
-        pbrShader.SetVec3("lightColor", 1.0f, 1.0f, 1.0f);
-
-        // Configurar flags de textura
-        if (model->GetMeshCount() > 0) {
-            auto mat = model->GetMesh(0).GetMaterial();
-            if (mat) {
-                pbrShader.SetBool("hasTextureDiffuse", mat->HasTextureType(TextureType::DIFFUSE));
-                pbrShader.SetBool("hasTextureNormal", mat->HasTextureType(TextureType::NORMAL));
-                pbrShader.SetBool("hasTextureMetallic", mat->HasTextureType(TextureType::METALLIC));
-                pbrShader.SetBool("hasTextureRoughness", mat->HasTextureType(TextureType::ROUGHNESS));
-                pbrShader.SetBool("hasTextureAO", mat->HasTextureType(TextureType::AO));
-                pbrShader.SetBool("hasTextureEmission", mat->HasTextureType(TextureType::EMISSION));
-            }
+        // A. Begin Scene
+        glm::mat4 view = glm::lookAt(cameraPos, glm::vec3(0,0,0), glm::vec3(0,1,0));
+        glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH/SCR_HEIGHT, 0.1f, 100.0f);
+        renderer.BeginScene(view, proj, cameraPos);
+        
+        // Nave
+        if (shipModel) {
+            glm::mat4 model = glm::mat4(1.0f);
+            model = glm::rotate(model, (float)glfwGetTime() * 0.3f, glm::vec3(0.0f, 1.0f, 0.0f));
+            model = glm::scale(model, glm::vec3(0.5f));
+            renderer.Submit(shipModel, model);
         }
 
-        model->Draw(pbrShader.GetProgramID());
+        
+        glm::mat4 floor = glm::mat4(1.0f);
+        floor = glm::rotate(floor, (float)glfwGetTime() * 0.3f, glm::vec3(0.0f, 1.0f, 0.0f));
+        floor = glm::scale(floor, glm::vec3(10.0f));
+        renderer.SubmitMesh(floorMesh, floor); // Chão no centro
 
-        // PASSO 2: Renderizar na tela
+        // C. End Scene
+        renderer.EndScene();
+        
+        // --- PASS 2: Renderizar Quad na Tela (Post-Process) ---
         fb->Unbind();
-        int display_w, display_h;
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        glDisable(GL_DEPTH_TEST);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-
-        screenShader.Use();
-        screenShader.SetInt("screenTexture", 0);
-        glBindVertexArray(quadVAO);
-        glBindTexture(GL_TEXTURE_2D, fb->GetTexture());
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        renderer.DrawScreenQuad(screenShader, fb->GetTexture());
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
-    std::cout << "Encerrando aplicação..." << std::endl;
-    glDeleteVertexArrays(1, &quadVAO);
-    glDeleteBuffers(1, &quadVBO);
-    
+    // TextureManager::GetInstance().ClearCache();
     glfwTerminate();
     return 0;
-}
+};
