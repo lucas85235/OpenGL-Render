@@ -175,6 +175,38 @@ public:
         return true;
     }
 
+    bool LoadHDR(const std::string& filepath) {
+        path = filepath;
+        type = TextureType::UNKNOWN; // HDR geralmente é usado para Environment
+
+        stbi_set_flip_vertically_on_load(true);
+        
+        // stbi_loadf carrega floats (High Dynamic Range)
+        float* data = stbi_loadf(filepath.c_str(), &width, &height, &channels, 0);
+        
+        if (!data) {
+            std::cerr << "Falha ao carregar HDR: " << filepath << std::endl;
+            return false;
+        }
+
+        glGenTextures(1, &id);
+        glBindTexture(GL_TEXTURE_2D, id);
+        
+        // Note o GL_RGB16F: Precisamos de ponto flutuante para valores > 1.0 (brilho do sol)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, data);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        stbi_image_free(data);
+        loaded = true;
+        
+        std::cout << "Textura HDR carregada: " << filepath << std::endl;
+        return true;
+    }
+
     void Bind(unsigned int slot = 0) const {
         glActiveTexture(GL_TEXTURE0 + slot);
         glBindTexture(GL_TEXTURE_2D, id);

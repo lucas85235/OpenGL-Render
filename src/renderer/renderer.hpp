@@ -48,6 +48,10 @@ private:
     unsigned int screenQuadVAO = 0;
     unsigned int screenQuadVBO = 0;
 
+    Shader* skyboxShader = nullptr;
+    unsigned int skyboxVAO = 0;
+    unsigned int skyboxVBO = 0;
+
     // FILAS DE LUZ
     DirectionalLight sunLight; // Apenas 1 sol por enquanto
     std::vector<PointLightData> pointLights;
@@ -77,6 +81,61 @@ private:
         glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
         
         glBindVertexArray(0);
+
+        // --- INICIALIZAÇÃO DO CUBO DO SKYBOX ---
+        float skyboxVertices[] = {
+            // posições          
+            -1.0f,  1.0f, -1.0f,
+            -1.0f, -1.0f, -1.0f,
+             1.0f, -1.0f, -1.0f,
+             1.0f, -1.0f, -1.0f,
+             1.0f,  1.0f, -1.0f,
+            -1.0f,  1.0f, -1.0f,
+
+            -1.0f, -1.0f,  1.0f,
+            -1.0f, -1.0f, -1.0f,
+            -1.0f,  1.0f, -1.0f,
+            -1.0f,  1.0f, -1.0f,
+            -1.0f,  1.0f,  1.0f,
+            -1.0f, -1.0f,  1.0f,
+
+             1.0f, -1.0f, -1.0f,
+             1.0f, -1.0f,  1.0f,
+             1.0f,  1.0f,  1.0f,
+             1.0f,  1.0f,  1.0f,
+             1.0f,  1.0f, -1.0f,
+             1.0f, -1.0f, -1.0f,
+
+            -1.0f, -1.0f,  1.0f,
+            -1.0f,  1.0f,  1.0f,
+             1.0f,  1.0f,  1.0f,
+             1.0f,  1.0f,  1.0f,
+             1.0f, -1.0f,  1.0f,
+            -1.0f, -1.0f,  1.0f,
+
+            -1.0f,  1.0f, -1.0f,
+             1.0f,  1.0f, -1.0f,
+             1.0f,  1.0f,  1.0f,
+             1.0f,  1.0f,  1.0f,
+            -1.0f,  1.0f,  1.0f,
+            -1.0f,  1.0f, -1.0f,
+
+            -1.0f, -1.0f, -1.0f,
+            -1.0f, -1.0f,  1.0f,
+             1.0f, -1.0f, -1.0f,
+             1.0f, -1.0f, -1.0f,
+            -1.0f, -1.0f,  1.0f,
+             1.0f, -1.0f,  1.0f
+        };
+
+        glGenVertexArrays(1, &skyboxVAO);
+        glGenBuffers(1, &skyboxVBO);
+        glBindVertexArray(skyboxVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glBindVertexArray(0);
     }
 
 public:
@@ -85,13 +144,18 @@ public:
     ~Renderer() {
         if (screenQuadVAO) glDeleteVertexArrays(1, &screenQuadVAO);
         if (screenQuadVBO) glDeleteBuffers(1, &screenQuadVBO);
+        if (skyboxVAO) glDeleteVertexArrays(1, &skyboxVAO);
+        if (skyboxVBO) glDeleteBuffers(1, &skyboxVBO);
     }
 
-    void Init(Shader* defaultShader) {
+    void Init(Shader* defaultShader, Shader* sbShader = nullptr) {
         activeShader = defaultShader;
+        skyboxShader = sbShader;
+
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
-        // glDisable(GL_CULL_FACE);
+        glDisable(GL_CULL_FACE); // Desabilitar face culling por enquanto
+
         initRenderData();
     }
 
@@ -199,6 +263,29 @@ public:
             RenderMesh(cmd);
         }
     }
+
+    void DrawSkybox(unsigned int cubemapID, const glm::mat4& view, const glm::mat4& proj) {
+        if (!skyboxShader) return;
+
+        glDepthFunc(GL_LEQUAL);
+        
+        skyboxShader->Use();
+        skyboxShader->SetMat4("view", glm::value_ptr(view));
+        skyboxShader->SetMat4("projection", glm::value_ptr(proj));
+        skyboxShader->SetInt("skybox", 0);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
+        
+        glBindVertexArray(skyboxVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
+
+        // 2. Restaurar profundidade padrão
+        glDepthFunc(GL_LESS);
+    }
+
+    void SetSkyboxShader(Shader* s) { skyboxShader = s; }
 
     // --- NOVO: Método para desenhar Pós-Processamento ---
     void DrawScreenQuad(Shader& screenShader, unsigned int textureID) {

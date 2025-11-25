@@ -24,6 +24,7 @@
 #include "src/renderer/model_factory.hpp"
 #include "src/scene/scene.hpp"
 #include "src/scene/components.hpp"
+#include "src/renderer/pbr_utils.hpp"
 
 // Configurações da Janela
 const unsigned int SCR_WIDTH = 1280;
@@ -45,10 +46,13 @@ private:
     // Shaders
     std::unique_ptr<Shader> pbrShader;
     std::unique_ptr<Shader> screenShader;
+    std::unique_ptr<Shader> skyboxShader;
+
+    // Skybox
+    PBRUtils::EnvironmentMap envMap;
 
     // Assets da Cena
     std::unique_ptr<Scene> activeScene;
-
     std::shared_ptr<Entity> playerShipEntity;
     std::vector<std::shared_ptr<Material>> availableMaterials;
 
@@ -106,8 +110,14 @@ private:
         if (!screenShader->CompileFromSource(ShaderSource::ScreenVertexShader, 
                                              ShaderSource::ScreenFragmentShader)) return false;
 
+        skyboxShader = std::make_unique<Shader>();
+        if (!skyboxShader->CompileFromSource(CustomShaders::SkyboxVertexShader, 
+                                             CustomShaders::SkyboxFragmentShader)) return false;
+
         // Setup Renderer e Framebuffer
         renderer.Init(pbrShader.get());
+        renderer.SetSkyboxShader(skyboxShader.get());
+
         fb = std::make_unique<FrameBuffer>(SCR_WIDTH, SCR_HEIGHT);
         fb->Init();
 
@@ -158,7 +168,9 @@ private:
         floorEntity->transform.Scale = glm::vec3(20.0f);
         floorEntity->transform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
         
-// --- ILUMINAÇÃO ---
+        // --- ILUMINAÇÃO ---
+
+        envMap.LoadFromHDR("models/golden_gate_hills_4k.hdr");
 
         // 1. SOL (Directional Light)
         auto sunEntity = activeScene->CreateEntity("Sun");
@@ -237,6 +249,11 @@ private:
             activeScene->OnRender(renderer);
 
         renderer.EndScene();
+
+        // --- DESENHAR SKYBOX (Última coisa da cena 3D) ---        
+        // Desenhamos usando o cubemap gerado pela classe PBRUtils
+        renderer.DrawSkybox(envMap.envCubemap, view, proj);
+
         fb->Unbind();
 
         // --- PASS 2: Framebuffer -> Screen Quad ---

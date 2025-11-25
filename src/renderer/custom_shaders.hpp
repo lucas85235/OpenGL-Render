@@ -3,6 +3,44 @@
 
 namespace CustomShaders {
 
+const char* SkyboxVertexShader = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+
+out vec3 TexCoords;
+
+uniform mat4 projection;
+uniform mat4 view;
+
+void main() {
+    TexCoords = aPos;
+    // Remove a translação da matriz de visão (o céu não se move, só gira)
+    vec4 pos = projection * mat4(mat3(view)) * vec4(aPos, 1.0);
+    
+    // Truque de profundidade: Z = W. Após a divisão perspectiva, Z vira 1.0 (profundidade máxima)
+    gl_Position = pos.xyww;
+}
+)";
+
+const char* SkyboxFragmentShader = R"(
+#version 330 core
+out vec4 FragColor;
+
+in vec3 TexCoords;
+
+uniform samplerCube skybox;
+
+void main() {
+    vec3 envColor = texture(skybox, TexCoords).rgb;
+    
+    // Opcional: Aplicar tonemapping e gamma correction para ver melhor o HDR
+    envColor = envColor / (envColor + vec3(1.0));
+    envColor = pow(envColor, vec3(1.0/2.2)); 
+    
+    FragColor = vec4(envColor, 1.0);
+}
+)";
+
 const char* AdvancedVertexShader = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
