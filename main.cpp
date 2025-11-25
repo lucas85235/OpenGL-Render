@@ -154,30 +154,40 @@ private:
         auto floorMat = std::make_shared<Material>(MaterialLibrary::CreatePhong(glm::vec3(0.1f, 0.1f, 0.1f)));
 
         // 2. Criar Entidade NAVE
-        playerShipEntity = activeScene->CreateEntity("PlayerShip");
+        // playerShipEntity = activeScene->CreateEntity("PlayerShip");
         
-        // Adiciona componente de renderização (carrega o modelo)
-        auto model = std::make_shared<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
-        if (model->GetMeshCount() > 0) {
-            availableMaterials.push_back(model->GetMesh(0).GetMaterial());
-        }
+        // // Adiciona componente de renderização (carrega o modelo)
+        // auto model = std::make_shared<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
+        // if (model->GetMeshCount() > 0) {
+        //     availableMaterials.push_back(model->GetMesh(0).GetMaterial());
+        // }
 
-        auto renderComp = playerShipEntity->AddComponent<MeshRenderer>(model);
-        renderComp->SetMaterial(availableMaterials[0]);
+        // auto renderComp = playerShipEntity->AddComponent<MeshRenderer>(model);
+        // renderComp->SetMaterial(availableMaterials[0]);
 
-        // Adiciona comportamento (Script)
-        playerShipEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 30.0f, 0.0f)); // Gira 30 graus/s no Y
-        playerShipEntity->transform.Scale = glm::vec3(0.5f);
-        playerShipEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+        // // Adiciona comportamento (Script)
+        // playerShipEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 30.0f, 0.0f)); // Gira 30 graus/s no Y
+        // playerShipEntity->transform.Scale = glm::vec3(0.5f);
+        // playerShipEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
 
-        // 3. Criar Entidade CHÃO
-        auto floorEntity = activeScene->CreateEntity("Floor");
-        auto floorMesh = std::make_shared<Mesh>(ModelFactory::CreatePlaneMesh(1.0f));
-        auto floorRender = floorEntity->AddComponent<SimpleMeshRenderer>(floorMesh);
-        floorRender->SetMaterial(floorMat);
-        floorEntity->transform.Scale = glm::vec3(20.0f);
-        floorEntity->transform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
+        // // 3. Criar Entidade CHÃO
+        // auto floorEntity = activeScene->CreateEntity("Floor");
+        // auto floorMesh = std::make_shared<Mesh>(ModelFactory::CreatePlaneMesh(1.0f));
+        // auto floorRender = floorEntity->AddComponent<SimpleMeshRenderer>(floorMesh);
+        // floorRender->SetMaterial(floorMat);
+        // floorEntity->transform.Scale = glm::vec3(20.0f);
+        // floorEntity->transform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
         
+        auto sphereEntity = activeScene->CreateEntity("Sphere");
+        auto spherMesh = std::make_shared<Mesh>(ModelFactory::CreateSphere(1.0f));
+        sphereEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+        auto redMeshComp = sphereEntity->AddComponent<SimpleMeshRenderer>(spherMesh);
+        auto metalicMaterial = std::make_shared<Material>();
+        metalicMaterial->SetAlbedo(glm::vec3(1.0f, 0.0f, 0.0f));
+        metalicMaterial->SetMetallic(1.0f);
+        metalicMaterial->SetRoughness(0.0f);
+        redMeshComp->SetMaterial(metalicMaterial);
+
         // --- ILUMINAÇÃO ---
 
         envMap.LoadFromHDR("models/golden_gate_hills_8k.hdr");
@@ -189,7 +199,7 @@ private:
 
         // 2. LUZ VERMELHA (Point Light 1)
         auto redLight = activeScene->CreateEntity("RedLight");
-        redLight->AddComponent<PointLightComponent>(glm::vec3(1.0f, 0.0f, 0.0f), 30.0f, 10.0f);
+        // redLight->AddComponent<PointLightComponent>(glm::vec3(1.0f, 0.0f, 0.0f), 30.0f, 10.0f);
         redLight->transform.Position = glm::vec3(-2.0f, 1.0f, -2.0f);
         
         // Pequeno cubo para visualizar onde a luz está (Debug)
@@ -199,7 +209,7 @@ private:
 
         // 3. LUZ AZUL (Point Light 2) - Animada!
         auto blueLight = activeScene->CreateEntity("BlueLight");
-        blueLight->AddComponent<PointLightComponent>(glm::vec3(0.0f, 0.5f, 1.0f), 30.0f, 10.0f);
+        // blueLight->AddComponent<PointLightComponent>(glm::vec3(0.0f, 0.5f, 1.0f), 30.0f, 10.0f);
         blueLight->transform.Position = glm::vec3(2.0f, 1.0f, 0.0f);
         
         // Script para fazer a luz orbitar

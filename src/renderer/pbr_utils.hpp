@@ -59,15 +59,32 @@ void main() {
 class EnvironmentMap {
 private:
     const int CUBEMAP_SIZE = 1024;
+    const int IRRADIANCE_SIZE = 32;  // Baixa resolução pois é difuso
+    const int PREFILTER_SIZE = 128;  // Resolução média para reflexos
+
     SkyboxManager skyboxManager; // Gerenciador compartilhado
+
+    void SetupCaptureMatrices(glm::mat4* views, glm::mat4& proj) {
+        proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+        views[0] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f));
+        views[1] = glm::lookAt(glm::vec3(0.0f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f));
+        views[2] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f));
+        views[3] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f));
+        views[4] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f));
+        views[5] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f));
+    }
 
 public:
     unsigned int envCubemap;
+    unsigned int irradianceMap; // <--- NOVO
+    unsigned int prefilterMap;  // <--- NOVO
     
-    EnvironmentMap() : envCubemap(0) {}
-    
+    EnvironmentMap() : envCubemap(0), irradianceMap(0), prefilterMap(0) {}
+
     ~EnvironmentMap() {
         if (envCubemap) glDeleteTextures(1, &envCubemap);
+        if (irradianceMap) glDeleteTextures(1, &irradianceMap);
+        if (prefilterMap) glDeleteTextures(1, &prefilterMap);
     }
     
     /**
@@ -164,27 +181,144 @@ public:
         glDeleteFramebuffers(1, &captureFBO);
         glDeleteRenderbuffers(1, &captureRBO);
         
+        GenerateIrradianceMap();
+        GeneratePrefilterMap();
+
         std::cout << "✓ Environment Cubemap gerado com sucesso!" << std::endl;
         std::cout << "  - Resolução: " << CUBEMAP_SIZE << "x" << CUBEMAP_SIZE << " por face" << std::endl;
         std::cout << "  - Formato: RGB16F (HDR)" << std::endl;
         std::cout << "  - Mipmaps: Gerados" << std::endl;
     }
     
-    /**
-     * @brief Obtém o ID do cubemap para uso em shaders
-     * @return ID da textura cubemap
-     */
-    unsigned int GetCubemapID() const {
-        return envCubemap;
+    void GenerateIrradianceMap() {
+        glGenTextures(1, &irradianceMap);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, irradianceMap);
+        for (unsigned int i = 0; i < 6; ++i) {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 
+                         IRRADIANCE_SIZE, IRRADIANCE_SIZE, 0, GL_RGB, GL_FLOAT, nullptr);
+        }
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        unsigned int captureFBO, captureRBO;
+        glGenFramebuffers(1, &captureFBO);
+        glGenRenderbuffers(1, &captureRBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+        glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, IRRADIANCE_SIZE, IRRADIANCE_SIZE);
+
+        Shader irradianceShader;
+        irradianceShader.CompileFromSource(EquirectToCubeVertex, CustomShaders::IrradianceConvolutionFragment);
+
+        glm::mat4 captureProjection;
+        glm::mat4 captureViews[6];
+        SetupCaptureMatrices(captureViews, captureProjection);
+
+        irradianceShader.Use();
+        irradianceShader.SetInt("environmentMap", 0);
+        irradianceShader.SetMat4("projection", glm::value_ptr(captureProjection));
+        
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
+
+        glViewport(0, 0, IRRADIANCE_SIZE, IRRADIANCE_SIZE);
+        glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+
+        GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
+        glDisable(GL_CULL_FACE);
+
+        for (unsigned int i = 0; i < 6; ++i) {
+            irradianceShader.SetMat4("view", glm::value_ptr(captureViews[i]));
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, 
+                                   GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, irradianceMap, 0);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            skyboxManager.Render();
+        }
+
+        if (cullEnabled) glEnable(GL_CULL_FACE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteFramebuffers(1, &captureFBO);
+        glDeleteRenderbuffers(1, &captureRBO);
+        
+        std::cout << "✓ Irradiance Map gerado." << std::endl;
     }
-    
-    /**
-     * @brief Verifica se o cubemap foi gerado
-     * @return true se válido
-     */
-    bool IsValid() const {
-        return envCubemap != 0;
+
+    void GeneratePrefilterMap() {
+        glGenTextures(1, &prefilterMap);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, prefilterMap);
+        for (unsigned int i = 0; i < 6; ++i) {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 
+                         PREFILTER_SIZE, PREFILTER_SIZE, 0, GL_RGB, GL_FLOAT, nullptr);
+        }
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        
+        glGenerateMipmap(GL_TEXTURE_CUBE_MAP); // Importante: Aloca memória para os mips
+
+        Shader prefilterShader;
+        prefilterShader.CompileFromSource(EquirectToCubeVertex, CustomShaders::PrefilterFragment);
+
+        glm::mat4 captureProjection;
+        glm::mat4 captureViews[6];
+        SetupCaptureMatrices(captureViews, captureProjection);
+
+        prefilterShader.Use();
+        prefilterShader.SetInt("environmentMap", 0);
+        prefilterShader.SetMat4("projection", glm::value_ptr(captureProjection));
+        
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
+
+        unsigned int captureFBO, captureRBO;
+        glGenFramebuffers(1, &captureFBO);
+        glGenRenderbuffers(1, &captureRBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+
+        GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
+        glDisable(GL_CULL_FACE);
+
+        unsigned int maxMipLevels = 5;
+        for (unsigned int mip = 0; mip < maxMipLevels; ++mip) {
+            // Resize framebuffer according to mip-level size
+            unsigned int mipWidth  = PREFILTER_SIZE * std::pow(0.5, mip);
+            unsigned int mipHeight = PREFILTER_SIZE * std::pow(0.5, mip);
+            
+            glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, mipWidth, mipHeight);
+            glViewport(0, 0, mipWidth, mipHeight);
+
+            float roughness = (float)mip / (float)(maxMipLevels - 1);
+            prefilterShader.SetFloat("roughness", roughness);
+            
+            for (unsigned int i = 0; i < 6; ++i) {
+                prefilterShader.SetMat4("view", glm::value_ptr(captureViews[i]));
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, 
+                                       GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, prefilterMap, mip);
+
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                skyboxManager.Render();
+            }
+        }
+
+        if (cullEnabled) glEnable(GL_CULL_FACE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteFramebuffers(1, &captureFBO);
+        glDeleteRenderbuffers(1, &captureRBO);
+        
+        std::cout << "✓ Prefilter Map gerado." << std::endl;
     }
+
+    unsigned int GetCubemapID() const { return envCubemap; }
+    unsigned int GetIrradianceMapID() const { return irradianceMap; }
+    unsigned int GetPrefilterMapID() const { return prefilterMap; }
+
+    bool IsValid() const { return envCubemap != 0; }
 
     // Prevenir cópia
     EnvironmentMap(const EnvironmentMap&) = delete;
