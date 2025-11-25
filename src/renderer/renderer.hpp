@@ -21,6 +21,20 @@ struct SceneData {
     glm::vec3 lightColor;
 };
 
+// ESTRUTURAS DE DADOS DE LUZ
+struct DirectionalLight {
+    glm::vec3 direction = glm::vec3(-0.2f, -1.0f, -0.3f);
+    glm::vec3 color = glm::vec3(1.0f);
+    float intensity = 1.0f;
+};
+
+struct PointLightData {
+    glm::vec3 position;
+    glm::vec3 color;
+    float intensity;
+    float radius;
+};
+
 class Renderer {
 private:
     // Filas de renderização
@@ -33,6 +47,10 @@ private:
     // Recursos Internos do Renderer
     unsigned int screenQuadVAO = 0;
     unsigned int screenQuadVBO = 0;
+
+    // FILAS DE LUZ
+    DirectionalLight sunLight; // Apenas 1 sol por enquanto
+    std::vector<PointLightData> pointLights;
 
     void initRenderData() {
         // Configuração do Quad de Tela Cheia (NDC: -1 a 1)
@@ -90,6 +108,18 @@ public:
         // Limpar filas antigas
         opaqueQueue.clear();
         transparentQueue.clear();
+        pointLights.clear();
+    }
+
+    // --- SUBMIT LIGHTS ---
+    void SubmitDirectionalLight(const DirectionalLight& light) {
+        sunLight = light;
+    }
+
+    void SubmitPointLight(const PointLightData& light) {
+        if (pointLights.size() < 4) { // Limite do Shader (MAX_POINT_LIGHTS)
+            pointLights.push_back(light);
+        }
     }
 
     // 2. Submissão: Alguém pede para ser desenhado
@@ -145,6 +175,24 @@ public:
         activeShader->SetVec3("viewPos", sceneData.cameraPos.x, sceneData.cameraPos.y, sceneData.cameraPos.z);
         activeShader->SetVec3("lightPos", sceneData.lightPos.x, sceneData.lightPos.y, sceneData.lightPos.z);
         activeShader->SetVec3("lightColor", sceneData.lightColor.x, sceneData.lightColor.y, sceneData.lightColor.z);
+
+        // ENVIO DE LUZES PARA O SHADER
+        
+        // 1. Sol
+        activeShader->SetVec3("dirLight.direction", sunLight.direction.x, sunLight.direction.y, sunLight.direction.z);
+        activeShader->SetVec3("dirLight.color", sunLight.color.x, sunLight.color.y, sunLight.color.z);
+        activeShader->SetFloat("dirLight.intensity", sunLight.intensity);
+
+        // 2. Point Lights
+        activeShader->SetInt("numPointLights", (int)pointLights.size());
+        
+        for (size_t i = 0; i < pointLights.size(); i++) {
+            std::string base = "pointLights[" + std::to_string(i) + "]";
+            activeShader->SetVec3(base + ".position", pointLights[i].position.x, pointLights[i].position.y, pointLights[i].position.z);
+            activeShader->SetVec3(base + ".color", pointLights[i].color.x, pointLights[i].color.y, pointLights[i].color.z);
+            activeShader->SetFloat(base + ".intensity", pointLights[i].intensity);
+            activeShader->SetFloat(base + ".radius", pointLights[i].radius);
+        }
 
         // PASSO C: Render Loop (Geometry Pass)
         for (const auto& cmd : opaqueQueue) {

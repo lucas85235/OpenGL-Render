@@ -49,6 +49,9 @@ private:
     // Assets da Cena
     std::unique_ptr<Scene> activeScene;
 
+    std::shared_ptr<Entity> playerShipEntity;
+    std::vector<std::shared_ptr<Material>> availableMaterials;
+
     // Estado da Aplicação (Câmera e Inputs)
     glm::vec3 cameraPos = glm::vec3(0.0f, 2.0f, 6.0f);
     int currentMaterialIndex = 0;
@@ -117,36 +120,73 @@ private:
     void LoadScene() {
         activeScene = std::make_unique<Scene>();
 
-        // 1. Criar Materiais (Poderia ser um AssetManager, mas vamos deixar aqui por enquanto)
         auto goldMat = std::make_shared<Material>(MaterialLibrary::CreateGold());
+        auto silverMat = std::make_shared<Material>(MaterialLibrary::CreateSilver());
+        auto plasticMat = std::make_shared<Material>(MaterialLibrary::CreatePlastic());
+        auto rubberMat = std::make_shared<Material>(MaterialLibrary::CreateRubber());
+        auto neonMat = std::make_shared<Material>(MaterialLibrary::CreateEmissive(glm::vec3(0,1,1), 5.0f));
+
+        availableMaterials = { goldMat, silverMat, plasticMat, rubberMat, neonMat };
+
+        // 1. Criar Materiais (Poderia ser um AssetManager, mas vamos deixar aqui por enquanto)
+        // auto goldMat = std::make_shared<Material>(MaterialLibrary::CreateGold());
+
         auto floorMat = std::make_shared<Material>(MaterialLibrary::CreatePhong(glm::vec3(0.1f, 0.1f, 0.1f)));
-        // floorMat->SetAlbedo(glm::vec3(0.5f));
 
         // 2. Criar Entidade NAVE
-        auto shipEntity = activeScene->CreateEntity("PlayerShip");
+        playerShipEntity = activeScene->CreateEntity("PlayerShip");
         
         // Adiciona componente de renderização (carrega o modelo)
         auto model = std::make_shared<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
-        auto renderComp = shipEntity->AddComponent<MeshRenderer>(model);
-        renderComp->SetMaterial(goldMat);
+        if (model->GetMeshCount() > 0) {
+            availableMaterials.push_back(model->GetMesh(0).GetMaterial());
+        }
+
+        auto renderComp = playerShipEntity->AddComponent<MeshRenderer>(model);
+        renderComp->SetMaterial(availableMaterials[0]);
 
         // Adiciona comportamento (Script)
-        shipEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 30.0f, 0.0f)); // Gira 30 graus/s no Y
-        
-        // Ajusta posição inicial
-        shipEntity->transform.Scale = glm::vec3(0.5f);
-        shipEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+        playerShipEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 30.0f, 0.0f)); // Gira 30 graus/s no Y
+        playerShipEntity->transform.Scale = glm::vec3(0.5f);
+        playerShipEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
 
         // 3. Criar Entidade CHÃO
         auto floorEntity = activeScene->CreateEntity("Floor");
-        
         auto floorMesh = std::make_shared<Mesh>(ModelFactory::CreatePlaneMesh(1.0f));
         auto floorRender = floorEntity->AddComponent<SimpleMeshRenderer>(floorMesh);
         floorRender->SetMaterial(floorMat);
-
         floorEntity->transform.Scale = glm::vec3(20.0f);
         floorEntity->transform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
         
+// --- ILUMINAÇÃO ---
+
+        // 1. SOL (Directional Light)
+        auto sunEntity = activeScene->CreateEntity("Sun");
+        sunEntity->AddComponent<DirectionalLightComponent>(glm::vec3(1.0f, 0.95f, 0.8f), 2.0f); // Cor meio alaranjada, forte
+        sunEntity->transform.Position = glm::vec3(5.0f, 10.0f, 5.0f); // Sol vem dessa posição apontando pro centro
+
+        // 2. LUZ VERMELHA (Point Light 1)
+        auto redLight = activeScene->CreateEntity("RedLight");
+        redLight->AddComponent<PointLightComponent>(glm::vec3(1.0f, 0.0f, 0.0f), 30.0f, 10.0f);
+        redLight->transform.Position = glm::vec3(-2.0f, 1.0f, -2.0f);
+        
+        // Pequeno cubo para visualizar onde a luz está (Debug)
+        // auto debugMeshRed = std::make_shared<Mesh>(ModelFactory::CreateSphere(0.1f));
+        // auto redMeshComp = redLight->AddComponent<SimpleMeshRenderer>(debugMeshRed);
+        // redMeshComp->SetMaterial(std::make_shared<Material>(MaterialLibrary::CreateEmissive(glm::vec3(1,0,0), 10.0f)));
+
+        // 3. LUZ AZUL (Point Light 2) - Animada!
+        auto blueLight = activeScene->CreateEntity("BlueLight");
+        blueLight->AddComponent<PointLightComponent>(glm::vec3(0.0f, 0.5f, 1.0f), 30.0f, 10.0f);
+        blueLight->transform.Position = glm::vec3(2.0f, 1.0f, 0.0f);
+        
+        // Script para fazer a luz orbitar
+        blueLight->AddComponent<RotatorScript>(glm::vec3(0, 50, 0)); // Isso gira o transform
+        // Precisaríamos de um script "Orbiter" real para mover a posição, 
+        // mas se a luz for filha de um objeto rotativo funcionaria. 
+        // Como não temos hierarquia pai-filho ainda, vamos deixar estática ou usar Floater.
+        blueLight->AddComponent<FloaterScript>(1.0f, 2.0f); // Luz subindo e descendo
+
         // Inicia todos os scripts
         activeScene->OnStart();
     }
@@ -156,16 +196,19 @@ private:
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
         
-        // Troca de Material
-        // if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS && !mKeyPressed) {
-        //     mKeyPressed = true;
-        //     currentMaterialIndex = (currentMaterialIndex + 1) % materials.size();
-            
-        //     if(shipModel) {
-        //         shipModel->SetMaterialAll(materials[currentMaterialIndex]);
-        //         std::cout << "[MATERIAL] " << materials[currentMaterialIndex]->GetName() << std::endl;
-        //     }
-        // }
+        if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS && !mKeyPressed) {
+            mKeyPressed = true;
+            currentMaterialIndex = (currentMaterialIndex + 1) % availableMaterials.size();
+
+            if(playerShipEntity) {
+                auto rendererComponent = playerShipEntity->GetComponent<MeshRenderer>();
+                if (rendererComponent) {
+                    rendererComponent->SetMaterial(availableMaterials[currentMaterialIndex]);
+                    std::cout << "[MATERIAL] Trocado para: " 
+                              << availableMaterials[currentMaterialIndex]->GetName() << std::endl;
+                }
+            }
+        }
         if (glfwGetKey(window, GLFW_KEY_M) == GLFW_RELEASE) mKeyPressed = false;
         
         // Câmera
