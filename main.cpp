@@ -22,6 +22,8 @@
 #include "src/renderer/texture.hpp"
 #include "src/renderer/material.hpp"
 #include "src/renderer/model_factory.hpp"
+#include "src/scene/scene.hpp"
+#include "src/scene/components.hpp"
 
 // Configurações da Janela
 const unsigned int SCR_WIDTH = 1280;
@@ -45,9 +47,7 @@ private:
     std::unique_ptr<Shader> screenShader;
 
     // Assets da Cena
-    std::unique_ptr<Model> shipModel;
-    std::unique_ptr<Mesh> floorMesh;
-    std::vector<std::shared_ptr<Material>> materials;
+    std::unique_ptr<Scene> activeScene;
 
     // Estado da Aplicação (Câmera e Inputs)
     glm::vec3 cameraPos = glm::vec3(0.0f, 2.0f, 6.0f);
@@ -63,7 +63,8 @@ public:
 
     void Run() {
         if (!Init()) return;
-        LoadAssets();
+        LoadScene();
+        // LoadAssets();
         MainLoop();
     }
 
@@ -113,35 +114,41 @@ private:
         return true;
     }
 
-    // 2. Carregamento de Modelos e Materiais
-    void LoadAssets() {
-        // Carregar Nave
-        shipModel = std::make_unique<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
+    void LoadScene() {
+        activeScene = std::make_unique<Scene>();
 
-        // Criar Chão Procedural
-        Mesh tempMesh = ModelFactory::CreatePlaneMesh(1.0f);
-        floorMesh = std::make_unique<Mesh>(std::move(tempMesh));
+        // 1. Criar Materiais (Poderia ser um AssetManager, mas vamos deixar aqui por enquanto)
+        auto goldMat = std::make_shared<Material>(MaterialLibrary::CreateGold());
+        auto floorMat = std::make_shared<Material>(MaterialLibrary::CreatePhong(glm::vec3(0.1f, 0.1f, 0.1f)));
+        // floorMat->SetAlbedo(glm::vec3(0.5f));
 
-        auto floorMat = std::make_shared<Material>(MaterialLibrary::CreateRubber());
-        floorMat->SetAlbedo(glm::vec3(0.8f, 0.8f, 0.8f)); // Cinza claro
-        floorMesh->SetMaterial(floorMat);
+        // 2. Criar Entidade NAVE
+        auto shipEntity = activeScene->CreateEntity("PlayerShip");
+        
+        // Adiciona componente de renderização (carrega o modelo)
+        auto model = std::make_shared<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
+        auto renderComp = shipEntity->AddComponent<MeshRenderer>(model);
+        renderComp->SetMaterial(goldMat);
 
-        // Setup Biblioteca de Materiais
-        materials = {
-            std::make_shared<Material>(MaterialLibrary::CreateGold()),
-            std::make_shared<Material>(MaterialLibrary::CreateSilver()),
-            std::make_shared<Material>(MaterialLibrary::CreatePlastic()),
-            std::make_shared<Material>(MaterialLibrary::CreateRubber()),
-            std::make_shared<Material>(MaterialLibrary::CreateEmissive(glm::vec3(0,1,1), 5.0f))
-        };
+        // Adiciona comportamento (Script)
+        shipEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 30.0f, 0.0f)); // Gira 30 graus/s no Y
+        
+        // Ajusta posição inicial
+        shipEntity->transform.Scale = glm::vec3(0.5f);
+        shipEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
 
-        // Adiciona material original da nave se existir
-        if (shipModel && shipModel->GetMeshCount() > 0) {
-            materials.push_back(shipModel->GetMesh(0).GetMaterial());
-        }
+        // 3. Criar Entidade CHÃO
+        auto floorEntity = activeScene->CreateEntity("Floor");
+        
+        auto floorMesh = std::make_shared<Mesh>(ModelFactory::CreatePlaneMesh(1.0f));
+        auto floorRender = floorEntity->AddComponent<SimpleMeshRenderer>(floorMesh);
+        floorRender->SetMaterial(floorMat);
 
-        // Aplica material inicial
-        if (shipModel) shipModel->SetMaterialAll(materials[0]);
+        floorEntity->transform.Scale = glm::vec3(20.0f);
+        floorEntity->transform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
+        
+        // Inicia todos os scripts
+        activeScene->OnStart();
     }
 
     // 3. Processamento de Input e Lógica
@@ -150,15 +157,15 @@ private:
             glfwSetWindowShouldClose(window, true);
         
         // Troca de Material
-        if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS && !mKeyPressed) {
-            mKeyPressed = true;
-            currentMaterialIndex = (currentMaterialIndex + 1) % materials.size();
+        // if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS && !mKeyPressed) {
+        //     mKeyPressed = true;
+        //     currentMaterialIndex = (currentMaterialIndex + 1) % materials.size();
             
-            if(shipModel) {
-                shipModel->SetMaterialAll(materials[currentMaterialIndex]);
-                std::cout << "[MATERIAL] " << materials[currentMaterialIndex]->GetName() << std::endl;
-            }
-        }
+        //     if(shipModel) {
+        //         shipModel->SetMaterialAll(materials[currentMaterialIndex]);
+        //         std::cout << "[MATERIAL] " << materials[currentMaterialIndex]->GetName() << std::endl;
+        //     }
+        // }
         if (glfwGetKey(window, GLFW_KEY_M) == GLFW_RELEASE) mKeyPressed = false;
         
         // Câmera
@@ -167,13 +174,15 @@ private:
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) cameraPos.z += speed;
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) cameraPos.x -= speed;
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) cameraPos.x += speed;
+    
+        if (activeScene) activeScene->OnUpdate(deltaTime);
     }
 
     // 4. Renderização (Pass 1 + Pass 2)
     void Render(float time) {
         // --- PASS 1: Scene -> Framebuffer ---
         fb->Bind();
-        glClearColor(0.05f, 0.05f, 0.1f, 1.0f); // Espaço escuro
+        glClearColor(0.05f, 0.05f, 0.05f, 1.0f); // Espaço escuro
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glm::mat4 view = glm::lookAt(cameraPos, glm::vec3(0,0,0), glm::vec3(0,1,0));
@@ -181,18 +190,8 @@ private:
 
         renderer.BeginScene(view, proj, cameraPos);
 
-        // Desenhar Nave (Rotacionando)
-        if (shipModel) {
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::rotate(model, time * 0.3f, glm::vec3(0.0f, 1.0f, 0.0f));
-            model = glm::scale(model, glm::vec3(0.5f));
-            renderer.Submit(shipModel, model);
-        }
-
-        // Desenhar Chão (Estático)
-        glm::mat4 floorModel = glm::mat4(1.0f);
-        floorModel = glm::scale(floorModel, glm::vec3(20.0f)); // Chão grande
-        renderer.SubmitMesh(*floorMesh, floorModel);
+        if (activeScene) 
+            activeScene->OnRender(renderer);
 
         renderer.EndScene();
         fb->Unbind();

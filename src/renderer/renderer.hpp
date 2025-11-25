@@ -73,6 +73,7 @@ public:
         activeShader = defaultShader;
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
+        // glDisable(GL_CULL_FACE);
         initRenderData();
     }
 
@@ -92,7 +93,7 @@ public:
     }
 
     // 2. Submissão: Alguém pede para ser desenhado
-    void Submit(const std::unique_ptr<Model>& model, const glm::mat4& transform) {
+    void Submit(const std::shared_ptr<Model>& model, const glm::mat4& transform) {
         // Itera sobre todos os meshes do modelo
         for(size_t i = 0; i < model->GetMeshCount(); i++) {
             // Precisamos do const_cast porque seus getters retornam const Mesh&
