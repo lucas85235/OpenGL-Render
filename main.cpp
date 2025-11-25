@@ -30,6 +30,15 @@
 const unsigned int SCR_WIDTH = 1280;
 const unsigned int SCR_HEIGHT = 720;
 const char* APP_TITLE = "Engine: Render Pass & Framebuffer";
+    
+std::unique_ptr<FrameBuffer> fb;
+
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+    if (fb) {
+        fb->Resize(width, height);
+    }
+}
 
 // ==========================================
 // CLASSE PRINCIPAL DA APLICAÇÃO
@@ -41,7 +50,6 @@ private:
 
     // Sistemas Core
     Renderer renderer;
-    std::unique_ptr<FrameBuffer> fb;
     
     // Shaders
     std::unique_ptr<Shader> pbrShader;
@@ -93,7 +101,9 @@ private:
             glfwTerminate();
             return false;
         }
+
         glfwMakeContextCurrent(window);
+        glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
         glewExperimental = GL_TRUE;
         if (glewInit() != GLEW_OK) {
@@ -249,17 +259,9 @@ private:
             activeScene->OnRender(renderer);
 
         renderer.EndScene();
-
-        // --- DESENHAR SKYBOX (Última coisa da cena 3D) ---        
-        // Desenhamos usando o cubemap gerado pela classe PBRUtils
         renderer.DrawSkybox(envMap.envCubemap, view, proj);
 
         fb->Unbind();
-
-        // --- PASS 2: Framebuffer -> Screen Quad ---
-        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        
         renderer.DrawScreenQuad(*screenShader, fb->GetTexture());
     }
 
