@@ -7,7 +7,6 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-// Apenas inclusão do cabeçalho, sem implementação
 #include "stb_image.h"
 
 #include "mesh.hpp"
@@ -27,15 +26,17 @@ private:
 
     void loadModel(std::string path) {
         Assimp::Importer importer;
-        // Flags combinadas para melhor qualidade e PBR
+        
+        // FIX: Remover aiProcess_FlipUVs - deixa o Assimp decidir baseado no formato
         const aiScene *scene = importer.ReadFile(path, 
             aiProcess_Triangulate | 
-            aiProcess_FlipUVs | 
             aiProcess_CalcTangentSpace |
             aiProcess_GenNormals |
-            aiProcess_EmbedTextures |   // Importante para GLB
-            aiProcess_OptimizeMeshes |  // Otimização extra
-            aiProcess_OptimizeGraph
+            aiProcess_EmbedTextures |
+            aiProcess_OptimizeMeshes |
+            aiProcess_OptimizeGraph |
+            aiProcess_GenUVCoords |           // FIX: Gerar UVs se não existirem
+            aiProcess_TransformUVCoords       // FIX: Aplicar transformações de UV do material
         );
 
         if(!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
@@ -51,12 +52,10 @@ private:
     }
 
     void processNode(aiNode *node, const aiScene *scene) {
-        // Processar meshes do nó atual
         for(unsigned int i = 0; i < node->mNumMeshes; i++) {
             aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
             meshes.push_back(processMesh(mesh, scene));
         }
-        // Processar filhos
         for(unsigned int i = 0; i < node->mNumChildren; i++) {
             processNode(node->mChildren[i], scene);
         }
@@ -80,10 +79,11 @@ private:
                 vertex.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
             }
 
-            // UVs
+            // UV
             if(mesh->mTextureCoords[0]) {
                 vertex.TexCoords = glm::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
-            } else {
+            }
+            else {
                 vertex.TexCoords = glm::vec2(0.0f, 0.0f);
             }
 
@@ -91,10 +91,21 @@ private:
             if(mesh->HasTangentsAndBitangents()) {
                 vertex.Tangent = glm::vec3(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z);
                 vertex.Bitangent = glm::vec3(mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z);
+                
+                // FIX: Normalizar tangentes e bitangentes
+                vertex.Tangent = glm::normalize(vertex.Tangent);
+                vertex.Bitangent = glm::normalize(vertex.Bitangent);
             } else {
-                // Valores padrão seguros se não houver tangentes
-                vertex.Tangent = glm::vec3(1.0f, 0.0f, 0.0f);
-                vertex.Bitangent = glm::vec3(0.0f, 1.0f, 0.0f);
+                // FIX: Calcular tangente baseada na normal
+                glm::vec3 c1 = glm::cross(vertex.Normal, glm::vec3(0.0f, 0.0f, 1.0f));
+                glm::vec3 c2 = glm::cross(vertex.Normal, glm::vec3(0.0f, 1.0f, 0.0f));
+                
+                if(glm::length(c1) > glm::length(c2))
+                    vertex.Tangent = glm::normalize(c1);
+                else
+                    vertex.Tangent = glm::normalize(c2);
+                
+                vertex.Bitangent = glm::normalize(glm::cross(vertex.Normal, vertex.Tangent));
             }
 
             vertices.push_back(vertex);
@@ -136,32 +147,22 @@ private:
             material->SetRoughness(glm::clamp(roughness, 0.05f, 1.0f));
         }
 
-        // --- Carregamento de Texturas (Padrão + PBR) ---
-        // Diffuse / Albedo
+        // --- Carregamento de Texturas ---
         loadMaterialTextures(material, aiMat, aiTextureType_DIFFUSE, TextureType::DIFFUSE, scene);
-        loadMaterialTextures(material, aiMat, aiTextureType_BASE_COLOR, TextureType::DIFFUSE, scene); // GLTF PBR
-
-        // Specular
+        loadMaterialTextures(material, aiMat, aiTextureType_BASE_COLOR, TextureType::DIFFUSE, scene);
         loadMaterialTextures(material, aiMat, aiTextureType_SPECULAR, TextureType::SPECULAR, scene);
-
-        // Normal Map (Tenta NORMALS e HEIGHT - OBJ costuma usar HEIGHT)
         loadMaterialTextures(material, aiMat, aiTextureType_NORMALS, TextureType::NORMAL, scene);
         loadMaterialTextures(material, aiMat, aiTextureType_HEIGHT, TextureType::NORMAL, scene);
-
-        // PBR Maps (Metallic, Roughness, AO)
         loadMaterialTextures(material, aiMat, aiTextureType_METALNESS, TextureType::METALLIC, scene);
         loadMaterialTextures(material, aiMat, aiTextureType_DIFFUSE_ROUGHNESS, TextureType::ROUGHNESS, scene);
         loadMaterialTextures(material, aiMat, aiTextureType_AMBIENT_OCCLUSION, TextureType::AO, scene);
-        loadMaterialTextures(material, aiMat, aiTextureType_LIGHTMAP, TextureType::AO, scene); // As vezes AO vem no Lightmap
-
-        // Emission
+        loadMaterialTextures(material, aiMat, aiTextureType_LIGHTMAP, TextureType::AO, scene);
         loadMaterialTextures(material, aiMat, aiTextureType_EMISSIVE, TextureType::EMISSION, scene);
     }
 
     void loadMaterialTextures(std::shared_ptr<Material> targetMat, aiMaterial *mat, 
                               aiTextureType aiType, TextureType texType, const aiScene* scene) {
         
-        // Se já tiver carregado uma textura desse tipo para este material, evita duplicar (ex: normal map em height e normals)
         if (targetMat->HasTextureType(texType)) return;
 
         for(unsigned int i = 0; i < mat->GetTextureCount(aiType); i++) {
@@ -169,20 +170,24 @@ private:
             mat->GetTexture(aiType, i, &str);
             std::string filename = std::string(str.C_Str());
             
-            // --- CASO 1: TEXTURA EMBUTIDA (GLB/FBX Embed) ---
+            // --- TEXTURA EMBUTIDA ---
             if (filename.length() > 0 && filename[0] == '*') {
                 int textureIndex = std::stoi(filename.substr(1));
                 if (textureIndex < (int)scene->mNumTextures) {
                     aiTexture* aiTex = scene->mTextures[textureIndex];
                     
-                    // Criamos textura direta (sem Cache do Manager por enquanto para embutidas)
                     auto embeddedTex = std::make_shared<Texture>();
                     
                     int size = (aiTex->mHeight == 0) ? aiTex->mWidth : aiTex->mWidth * aiTex->mHeight * 4;
                     
                     TextureParams params;
-                    // Normal maps geralmente não devem ser flipados verticalmente dependendo da origem
-                    // Mas Assimp geralmente entrega correto se usarmos aiProcess_FlipUVs no loadModel
+                    // FIX: Não flipar texturas embutidas - GLB/GLTF já vêm corretos
+                    params.flipVertically = false;
+                    
+                    // FIX: Normal maps precisam de configuração específica
+                    // if (texType == TextureType::NORMAL) {
+                    //     params.sRGB = false; // Normal maps devem ser lineares
+                    // }
                     
                     bool loaded = embeddedTex->LoadFromMemory(
                         reinterpret_cast<unsigned char*>(aiTex->pcData),
@@ -193,16 +198,14 @@ private:
 
                     if (loaded) {
                         targetMat->AddTexture(embeddedTex);
-                        // Para texturas embutidas, geralmente pegamos só a primeira de cada tipo
                         return; 
                     }
                 }
             } 
-            // --- CASO 2: ARQUIVO EM DISCO (OBJ, GLTF externo) ---
+            // --- ARQUIVO EM DISCO ---
             else {
                 std::string fullPath = directory + '/' + filename;
                 
-                // Usamos o Manager para evitar recarregar "madeira.jpg" se 10 objetos usam ela
                 auto tex = TextureManager::GetInstance().LoadTexture(fullPath, texType);
                 if (tex) {
                     targetMat->AddTexture(tex);
@@ -221,7 +224,6 @@ public:
             meshes[i].Draw(shaderProgram);
     }
 
-    // Acessores úteis
     size_t GetMeshCount() const { return meshes.size(); }
     const Mesh& GetMesh(size_t index) const { return meshes[index]; }
 

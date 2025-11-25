@@ -194,15 +194,15 @@ public:
             // Assumindo que materiais usam 0, 1, 2, 3, 4
             glActiveTexture(GL_TEXTURE5);
             glBindTexture(GL_TEXTURE_CUBE_MAP, iblIrradiance);
-            activeShader->SetInt("irradianceMap", 5);
+            activeShader->SetInt("irradianceMap", 10);
 
             glActiveTexture(GL_TEXTURE6);
             glBindTexture(GL_TEXTURE_CUBE_MAP, iblPrefilter);
-            activeShader->SetInt("prefilterMap", 6);
+            activeShader->SetInt("prefilterMap", 11);
 
             glActiveTexture(GL_TEXTURE7);
             glBindTexture(GL_TEXTURE_2D, iblBrdf);
-            activeShader->SetInt("brdfLUT", 7);
+            activeShader->SetInt("brdfLUT", 12);
         } else {
             activeShader->SetBool("useIBL", false);
         }
@@ -275,6 +275,35 @@ public:
         glEnable(GL_DEPTH_TEST);
     }
 
+    void DebugCubemap(unsigned int cubemapID, const char* name) {
+        glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
+        
+        GLint width, height, format;
+        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_WIDTH, &width);
+        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_HEIGHT, &height);
+        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_INTERNAL_FORMAT, &format);
+        
+        std::cout << "[DEBUG] " << name << ":" << std::endl;
+        std::cout << "  - Size: " << width << "x" << height << std::endl;
+        std::cout << "  - Format: 0x" << std::hex << format << std::dec << std::endl;
+        
+        // Verificar se todas as faces foram criadas
+        for (int i = 0; i < 6; i++) {
+            GLint faceWidth;
+            glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_TEXTURE_WIDTH, &faceWidth);
+            if (faceWidth == 0) {
+                std::cerr << "  - ERRO: Face " << i << " não foi criada!" << std::endl;
+            }
+        }
+        
+        // Verificar mipmaps
+        GLint maxLevel;
+        glGetTexParameteriv(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, &maxLevel);
+        std::cout << "  - Max Mip Level: " << maxLevel << std::endl;
+        
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    }
+    
 private:
     void RenderMesh(const RenderCommand& cmd) {
         if (cmd.material) {

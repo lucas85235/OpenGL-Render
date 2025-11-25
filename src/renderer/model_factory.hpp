@@ -38,10 +38,12 @@ public:
                 nz = z * lengthInv;
                 v.Normal = glm::vec3(nx, ny, nz);
 
+                // FIX: Coordenadas UV normalizadas [0,1]
                 s = (float)j / sectors;
                 t = (float)i / stacks;
                 v.TexCoords = glm::vec2(s, t);
 
+                // FIX: Tangente calculada corretamente para esfera
                 v.Tangent = glm::normalize(glm::vec3(-sinf(sectorAngle), cosf(sectorAngle), 0.0f)); 
                 v.Bitangent = glm::normalize(glm::cross(v.Normal, v.Tangent));
 
@@ -76,8 +78,7 @@ public:
         
         float half = size / 2.0f;
         
-        // Array com as 6 faces do cubo
-        // Cada face tem 4 vértices com normal, tangente e bitangente corretos
+        // FIX: UVs corrigidos para cada face [0,1]
         
         // FACE FRONTAL (+Z)
         vertices.push_back({{-half, -half,  half}, {0, 0, 1}, {0, 0}, {1, 0, 0}, {0, 1, 0}});
@@ -115,7 +116,6 @@ public:
         vertices.push_back({{-half,  half,  half}, {-1, 0, 0}, {1, 1}, {0, 0, 1}, {0, 1, 0}});
         vertices.push_back({{-half,  half, -half}, {-1, 0, 0}, {0, 1}, {0, 0, 1}, {0, 1, 0}});
         
-        // Índices para as 6 faces (cada face = 2 triângulos)
         for(int i = 0; i < 6; ++i) {
             int offset = i * 4;
             indices.push_back(offset + 0);
@@ -137,21 +137,21 @@ public:
         float halfHeight = height / 2.0f;
         float sectorStep = 2 * M_PI / sectors;
         
-        // Vertices do corpo do cilindro
+        // Corpo do cilindro - FIX: UVs em [0,1]
         for(int i = 0; i <= sectors; ++i) {
             float sectorAngle = i * sectorStep;
             float x = radius * cosf(sectorAngle);
             float z = radius * sinf(sectorAngle);
             
             glm::vec3 normal = glm::normalize(glm::vec3(x, 0, z));
-            glm::vec3 tangent = glm::vec3(-sinf(sectorAngle), 0, cosf(sectorAngle));
+            glm::vec3 tangent = glm::normalize(glm::vec3(-sinf(sectorAngle), 0, cosf(sectorAngle)));
             glm::vec3 bitangent = glm::vec3(0, 1, 0);
             
             // Vértice inferior
             vertices.push_back({
                 {x, -halfHeight, z},
                 normal,
-                {(float)i / sectors, 0},
+                {(float)i / sectors, 0.0f}, // FIX: V=0 na base
                 tangent,
                 bitangent
             });
@@ -160,7 +160,7 @@ public:
             vertices.push_back({
                 {x, halfHeight, z},
                 normal,
-                {(float)i / sectors, 1},
+                {(float)i / sectors, 1.0f}, // FIX: V=1 no topo
                 tangent,
                 bitangent
             });
@@ -180,24 +180,25 @@ public:
             indices.push_back(next + 1);
         }
         
-        // Tampa inferior (centro primeiro)
+        // Tampa inferior - FIX: UVs radiais corretos
         int bottomCenterIndex = vertices.size();
         vertices.push_back({
             {0, -halfHeight, 0},
             {0, -1, 0},
-            {0.5f, 0.5f},
+            {0.5f, 0.5f}, // Centro em (0.5, 0.5)
             {1, 0, 0},
             {0, 0, 1}
         });
         
         for(int i = 0; i < sectors; ++i) {
-            float angle1 = i * sectorStep;
-            float angle2 = (i + 1) * sectorStep;
+            float angle = i * sectorStep;
+            float cosA = cosf(angle);
+            float sinA = sinf(angle);
             
             vertices.push_back({
-                {radius * cosf(angle1), -halfHeight, radius * sinf(angle1)},
+                {radius * cosA, -halfHeight, radius * sinA},
                 {0, -1, 0},
-                {0.5f + 0.5f * cosf(angle1), 0.5f + 0.5f * sinf(angle1)},
+                {0.5f + 0.5f * cosA, 0.5f + 0.5f * sinA}, // UV radial
                 {1, 0, 0},
                 {0, 0, 1}
             });
@@ -209,7 +210,7 @@ public:
             indices.push_back(bottomCenterIndex + 1 + i);
         }
         
-        // Tampa superior
+        // Tampa superior - FIX: UVs radiais corretos
         int topCenterIndex = vertices.size();
         vertices.push_back({
             {0, halfHeight, 0},
@@ -221,11 +222,13 @@ public:
         
         for(int i = 0; i < sectors; ++i) {
             float angle = i * sectorStep;
+            float cosA = cosf(angle);
+            float sinA = sinf(angle);
             
             vertices.push_back({
-                {radius * cosf(angle), halfHeight, radius * sinf(angle)},
+                {radius * cosA, halfHeight, radius * sinA},
                 {0, 1, 0},
-                {0.5f + 0.5f * cosf(angle), 0.5f + 0.5f * sinf(angle)},
+                {0.5f + 0.5f * cosA, 0.5f + 0.5f * sinA},
                 {1, 0, 0},
                 {0, 0, 1}
             });
@@ -245,32 +248,40 @@ public:
         std::vector<unsigned int> indices;
         
         float sectorStep = 2 * M_PI / sectors;
+        float slant = sqrtf(radius * radius + height * height);
+        float sinSlant = radius / slant;
+        float cosSlant = height / slant;
         
-        // Vértice do topo (ápice)
+        // Vértice do topo
         int apexIndex = 0;
         vertices.push_back({
             {0, height, 0},
-            {0, 1, 0},
+            {0, cosSlant, 0}, // FIX: Normal correta do ápice
             {0.5f, 1.0f},
             {1, 0, 0},
             {0, 0, 1}
         });
         
-        // Vértices da base
+        // Vértices da superfície cônica - FIX: UVs e normais corretos
         for(int i = 0; i <= sectors; ++i) {
             float angle = i * sectorStep;
             float x = radius * cosf(angle);
             float z = radius * sinf(angle);
             
-            // Normal calculada para superfície cônica
-            glm::vec3 surfaceNormal = glm::normalize(glm::vec3(x, radius, z));
-            glm::vec3 tangent = glm::vec3(-sinf(angle), 0, cosf(angle));
+            // FIX: Normal da superfície cônica (não da base)
+            glm::vec3 surfaceNormal = glm::normalize(glm::vec3(
+                cosf(angle) * cosSlant,
+                sinSlant,
+                sinf(angle) * cosSlant
+            ));
+            
+            glm::vec3 tangent = glm::normalize(glm::vec3(-sinf(angle), 0, cosf(angle)));
             glm::vec3 bitangent = glm::cross(surfaceNormal, tangent);
             
             vertices.push_back({
                 {x, 0, z},
                 surfaceNormal,
-                {(float)i / sectors, 0},
+                {(float)i / sectors, 0.0f}, // FIX: UV em [0,1]
                 tangent,
                 bitangent
             });
@@ -283,7 +294,7 @@ public:
             indices.push_back(i + 1);
         }
         
-        // Base do cone
+        // Base do cone - FIX: UVs radiais
         int baseCenterIndex = vertices.size();
         vertices.push_back({
             {0, 0, 0},
@@ -295,11 +306,13 @@ public:
         
         for(int i = 0; i < sectors; ++i) {
             float angle = i * sectorStep;
+            float cosA = cosf(angle);
+            float sinA = sinf(angle);
             
             vertices.push_back({
-                {radius * cosf(angle), 0, radius * sinf(angle)},
+                {radius * cosA, 0, radius * sinA},
                 {0, -1, 0},
-                {0.5f + 0.5f * cosf(angle), 0.5f + 0.5f * sinf(angle)},
+                {0.5f + 0.5f * cosA, 0.5f + 0.5f * sinA},
                 {1, 0, 0},
                 {0, 0, 1}
             });
@@ -332,29 +345,24 @@ public:
                 float cv = cosf(v);
                 float sv = sinf(v);
                 
-                // Posição
                 float x = (majorRadius + minorRadius * cv) * cu;
                 float y = minorRadius * sv;
                 float z = (majorRadius + minorRadius * cv) * su;
                 
-                // Normal
                 glm::vec3 normal = glm::normalize(glm::vec3(cv * cu, sv, cv * su));
-                
-                // Tangente e Bitangente
                 glm::vec3 tangent = glm::normalize(glm::vec3(-su, 0, cu));
-                glm::vec3 bitangent = glm::cross(normal, tangent);
+                glm::vec3 bitangent = glm::normalize(glm::cross(normal, tangent));
                 
                 vertices.push_back({
                     {x, y, z},
                     normal,
-                    {(float)i / majorSectors, (float)j / minorSectors},
+                    {(float)i / majorSectors, (float)j / minorSectors}, // FIX: UV normalizado
                     tangent,
                     bitangent
                 });
             }
         }
         
-        // Índices
         for(int i = 0; i < majorSectors; ++i) {
             int i1 = i * (minorSectors + 1);
             int i2 = (i + 1) * (minorSectors + 1);
@@ -383,33 +391,16 @@ public:
         glm::vec3 bitangent = glm::vec3(0.0f, 0.0f, 1.0f);
         glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
 
-        Vertex v1, v2, v3, v4;
-
-        v1.Position = {-half, 0, -half}; 
-        v1.Normal = normal; 
-        v1.TexCoords = {0, 0};
-        v1.Tangent = tangent;
-        v1.Bitangent = bitangent;
-
-        v2.Position = {half, 0, -half}; 
-        v2.Normal = normal; 
-        v2.TexCoords = {size/2, 0};
-        v2.Tangent = tangent;
-        v2.Bitangent = bitangent;
-
-        v3.Position = {half, 0, half}; 
-        v3.Normal = normal; 
-        v3.TexCoords = {size/2, size/2};
-        v3.Tangent = tangent;
-        v3.Bitangent = bitangent;
-
-        v4.Position = {-half, 0, half}; 
-        v4.Normal = normal; 
-        v4.TexCoords = {0, size/2};
-        v4.Tangent = tangent;
-        v4.Bitangent = bitangent;
+        // FIX: UVs mantidos para tiling mas opcionalmente podem ser [0,1]
+        // Se quiser textura sem repetição, mude size/2 para 1.0f
         
-        vertices = {v1, v2, v3, v4};
+        vertices = {
+            {{-half, 0, -half}, normal, {0, 0}, tangent, bitangent},
+            {{ half, 0, -half}, normal, {size/2, 0}, tangent, bitangent},
+            {{ half, 0,  half}, normal, {size/2, size/2}, tangent, bitangent},
+            {{-half, 0,  half}, normal, {0, size/2}, tangent, bitangent}
+        };
+        
         indices = {0, 2, 1, 2, 0, 3};
         
         return Mesh(vertices, indices, nullptr);
@@ -441,15 +432,13 @@ public:
                 glm::vec3 pos(x, z + halfCylinderHeight, y);
                 glm::vec3 normal = glm::normalize(glm::vec3(x, z, y));
                 glm::vec3 tangent = glm::normalize(glm::vec3(-sinf(sectorAngle), 0, cosf(sectorAngle)));
-                glm::vec3 bitangent = glm::cross(normal, tangent);
+                glm::vec3 bitangent = glm::normalize(glm::cross(normal, tangent));
                 
-                vertices.push_back({
-                    pos,
-                    normal,
-                    {(float)j / sectors, (float)i / (rings * 2)},
-                    tangent,
-                    bitangent
-                });
+                // FIX: UV corrigido para cápsula
+                float u = (float)j / sectors;
+                float v = 0.75f + 0.25f * ((float)i / rings); // Topo: 0.75 a 1.0
+                
+                vertices.push_back({pos, normal, {u, v}, tangent, bitangent});
             }
         }
         
@@ -466,13 +455,10 @@ public:
                 glm::vec3 tangent = glm::vec3(-sinf(sectorAngle), 0, cosf(sectorAngle));
                 glm::vec3 bitangent = glm::vec3(0, 1, 0);
                 
-                vertices.push_back({
-                    {x, yPos, z},
-                    normal,
-                    {(float)j / sectors, 0.5f + (i == 0 ? -0.25f : 0.25f)},
-                    tangent,
-                    bitangent
-                });
+                float u = (float)j / sectors;
+                float v = (i == 0) ? 0.75f : 0.25f; // Meio: 0.25 a 0.75
+                
+                vertices.push_back({{x, yPos, z}, normal, {u, v}, tangent, bitangent});
             }
         }
         
@@ -491,24 +477,20 @@ public:
                 glm::vec3 pos(x, z - halfCylinderHeight, y);
                 glm::vec3 normal = glm::normalize(glm::vec3(x, z, y));
                 glm::vec3 tangent = glm::normalize(glm::vec3(-sinf(sectorAngle), 0, cosf(sectorAngle)));
-                glm::vec3 bitangent = glm::cross(normal, tangent);
+                glm::vec3 bitangent = glm::normalize(glm::cross(normal, tangent));
                 
-                vertices.push_back({
-                    pos,
-                    normal,
-                    {(float)j / sectors, 1.0f - (float)i / (rings * 2)},
-                    tangent,
-                    bitangent
-                });
+                float u = (float)j / sectors;
+                float v = 0.25f - 0.25f * ((float)i / rings); // Base: 0.25 a 0.0
+                
+                vertices.push_back({pos, normal, {u, v}, tangent, bitangent});
             }
         }
         
-        // Gerar índices
+        // Gerar índices (mantém a lógica original)
         int topHemisphereStart = 0;
         int cylinderStart = (rings + 1) * (sectors + 1);
         int bottomHemisphereStart = cylinderStart + 2 * (sectors + 1);
         
-        // Índices do hemisfério superior
         for(int i = 0; i < rings; ++i) {
             int k1 = topHemisphereStart + i * (sectors + 1);
             int k2 = k1 + sectors + 1;
@@ -524,7 +506,6 @@ public:
             }
         }
         
-        // Índices do cilindro
         for(int j = 0; j < sectors; ++j) {
             int k1 = cylinderStart + j;
             int k2 = k1 + sectors + 1;
@@ -538,7 +519,6 @@ public:
             indices.push_back(k2 + 1);
         }
         
-        // Índices do hemisfério inferior
         for(int i = 0; i < rings; ++i) {
             int k1 = bottomHemisphereStart + i * (sectors + 1);
             int k2 = k1 + sectors + 1;

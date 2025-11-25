@@ -7,14 +7,20 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <vector>
 #include <iostream>
+#include <cmath>
+#include <algorithm>
 
 #include "shader.hpp"
 #include "texture.hpp"
 #include "skybox_manager.hpp"
+#include "custom_shaders.hpp" // Ensure access to Prefilter/Irradiance shader sources
 
 namespace PBRUtils {
 
-// Shader para converter 2D -> Cubo
+// ----------------------------------------------------------------------------
+// Shaders for Equirectangular to Cubemap Conversion
+// ----------------------------------------------------------------------------
+
 const char* EquirectToCubeVertex = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -48,14 +54,15 @@ void main() {
 }
 )";
 
-// --- NOVO: Shaders para BRDF LUT ---
+// ----------------------------------------------------------------------------
+// Shaders for BRDF LUT Generation
+// ----------------------------------------------------------------------------
+
 const char* BrdfVertexShader = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoords;
-
 out vec2 TexCoords;
-
 void main() {
     TexCoords = aTexCoords;
     gl_Position = vec4(aPos, 1.0);
@@ -66,14 +73,7 @@ const char* BrdfFragmentShader = R"(
 #version 330 core
 out vec2 FragColor;
 in vec2 TexCoords;
-
 const float PI = 3.14159265359;
-
-// (Mesmas funções auxiliares do Prefilter: Hammersley, ImportanceSample)
-// ... Para economizar espaço, assuma que RadicalInverse_VdC e Hammersley 
-// estão definidos aqui igual ao shader anterior ...
-// Copie as funções RadicalInverse_VdC e Hammersley do PrefilterFragment para cá se necessário,
-// ou defina-as novamente aqui:
 
 float RadicalInverse_VdC(uint bits) {
     bits = (bits << 16u) | (bits >> 16u);
@@ -128,34 +128,26 @@ vec2 IntegrateBRDF(float NdotV, float roughness) {
     V.x = sqrt(1.0 - NdotV*NdotV);
     V.y = 0.0;
     V.z = NdotV;
-
     float A = 0.0;
     float B = 0.0;
-
     vec3 N = vec3(0.0, 0.0, 1.0);
-
     const uint SAMPLE_COUNT = 1024u;
     for(uint i = 0u; i < SAMPLE_COUNT; ++i) {
         vec2 Xi = Hammersley(i, SAMPLE_COUNT);
         vec3 H  = ImportanceSampleGGX(Xi, N, roughness);
         vec3 L  = normalize(2.0 * dot(V, H) * H - V);
-
         float NdotL = max(L.z, 0.0);
         float NdotH = max(H.z, 0.0);
         float VdotH = max(dot(V, H), 0.0);
-
         if(NdotL > 0.0) {
             float G = GeometrySmith(N, V, L, roughness);
             float G_Vis = (G * VdotH) / (NdotH * NdotV);
             float Fc = pow(1.0 - VdotH, 5.0);
-
             A += (1.0 - Fc) * G_Vis;
             B += Fc * G_Vis;
         }
     }
-    A /= float(SAMPLE_COUNT);
-    B /= float(SAMPLE_COUNT);
-    return vec2(A, B);
+    return vec2(A / float(SAMPLE_COUNT), B / float(SAMPLE_COUNT));
 }
 
 void main() {
@@ -165,21 +157,22 @@ void main() {
 )";
 
 /**
- * @brief Classe para gerenciar Environment Maps (IBL)
- * 
- * Responsável por:
- * - Carregar HDR e converter para cubemap
- * - Gerar mapas de irradiância e pré-filtrados
- * - Fornecer texturas para IBL
+ * @brief Manages PBR IBL (Image Based Lighting) Map Generation.
+ * * Handles loading HDR equirectangular maps and converting them into:
+ * 1. Environment Cubemap
+ * 2. Irradiance Map (Diffuse)
+ * 3. Prefilter Map (Specular)
+ * 4. BRDF Look-Up Table (Specular Integration)
  */
 class EnvironmentMap {
 private:
     const int CUBEMAP_SIZE = 1024;
-    const int IRRADIANCE_SIZE = 32;  // Baixa resolução pois é difuso
-    const int PREFILTER_SIZE = 128;  // Resolução média para reflexos
+    const int IRRADIANCE_SIZE = 32;
+    const int PREFILTER_SIZE = 128;
 
-    SkyboxManager skyboxManager; // Gerenciador compartilhado
+    SkyboxManager skyboxManager;
 
+    // Setup capture view matrices for the 6 cubemap faces
     void SetupCaptureMatrices(glm::mat4* views, glm::mat4& proj) {
         proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
         views[0] = glm::lookAt(glm::vec3(0.0f), glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f));
@@ -196,33 +189,31 @@ public:
     unsigned int prefilterMap;
     unsigned int brdfLUTTexture;
     
-    EnvironmentMap() : envCubemap(0), irradianceMap(0), prefilterMap(0) {}
+    EnvironmentMap() : envCubemap(0), irradianceMap(0), prefilterMap(0), brdfLUTTexture(0) {}
 
     ~EnvironmentMap() {
         if (envCubemap) glDeleteTextures(1, &envCubemap);
         if (irradianceMap) glDeleteTextures(1, &irradianceMap);
         if (prefilterMap) glDeleteTextures(1, &prefilterMap);
+        if (brdfLUTTexture) glDeleteTextures(1, &brdfLUTTexture);
     }
     
     /**
-     * @brief Carrega HDR e converte para cubemap
-     * @param path Caminho para o arquivo HDR
+     * @brief Loads HDR image and generates all necessary IBL maps.
      */
     void LoadFromHDR(const std::string& path) {
-        // 1. Inicializar geometria do skybox
         if (!skyboxManager.Initialize()) {
-            std::cerr << "Falha ao inicializar SkyboxManager!" << std::endl;
+            std::cerr << "[IBL] Failed to initialize SkyboxManager!" << std::endl;
             return;
         }
 
-        // 2. Carregar HDR como textura 2D
         Texture hdrTexture;
         if (!hdrTexture.LoadHDR(path)) {
-            std::cerr << "Falha ao carregar HDR: " << path << std::endl;
+            std::cerr << "[IBL] Failed to load HDR: " << path << std::endl;
             return;
         }
 
-        // 3. Setup do Framebuffer de Captura
+        // Setup Capture Framebuffer
         unsigned int captureFBO, captureRBO;
         glGenFramebuffers(1, &captureFBO);
         glGenRenderbuffers(1, &captureRBO);
@@ -232,80 +223,70 @@ public:
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, CUBEMAP_SIZE, CUBEMAP_SIZE);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRBO);
 
-        // 4. Criar o Cubemap vazio
+        // Create and configure environment cubemap
         glGenTextures(1, &envCubemap);
         glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
         for (unsigned int i = 0; i < 6; ++i) {
             glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 
-                         CUBEMAP_SIZE, CUBEMAP_SIZE, 0, GL_RGB, GL_FLOAT, nullptr);
+                        CUBEMAP_SIZE, CUBEMAP_SIZE, 0, GL_RGB, GL_FLOAT, nullptr);
         }
+        
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        // 5. Matrizes de Captura (6 direções)
-        glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
-        glm::mat4 captureViews[] = {
-           glm::lookAt(glm::vec3(0.0f), glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-           glm::lookAt(glm::vec3(0.0f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-           glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)),
-           glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)),
-           glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-           glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))
-        };
-
-        // 6. Configurar Shader de Conversão
+        
+        // Convert HDR (Equirectangular) to Cubemap
         Shader convertShader;
         convertShader.CompileFromSource(EquirectToCubeVertex, EquirectToCubeFragment);
         convertShader.Use();
         convertShader.SetInt("equirectangularMap", 0);
+        
+        glm::mat4 captureProjection;
+        glm::mat4 captureViews[6];
+        SetupCaptureMatrices(captureViews, captureProjection);
         convertShader.SetMat4("projection", glm::value_ptr(captureProjection));
 
-        // 7. Salvar e desabilitar culling para captura
-        GLboolean cullFaceEnabled = glIsEnabled(GL_CULL_FACE);
-        glDisable(GL_CULL_FACE);
-
-        // 8. Loop de Renderização (6 faces do cubemap)
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, hdrTexture.GetID());
 
         glViewport(0, 0, CUBEMAP_SIZE, CUBEMAP_SIZE);
         glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
 
+        // Disable culling to render inside the cube
+        GLboolean cullFaceEnabled = glIsEnabled(GL_CULL_FACE);
+        glDisable(GL_CULL_FACE);
+
         for (unsigned int i = 0; i < 6; ++i) {
             convertShader.SetMat4("view", glm::value_ptr(captureViews[i]));
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, 
-                                   GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, envCubemap, 0);
+                                GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, envCubemap, 0);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-            // Renderizar usando SkyboxManager
             skyboxManager.Render();
         }
         
-        glBindVertexArray(0);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        
-        // 9. Gerar mipmaps
+        // Generate Mipmaps for the environment map (needed for correct sampling)
         glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
         glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
         
-        // 10. Restaurar estado de culling
+        // Fix: Clamp mipmap levels to avoid sampling artifacts at high roughness
+        int maxMipLevels = std::floor(std::log2(std::max(CUBEMAP_SIZE, CUBEMAP_SIZE))) + 1;
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, maxMipLevels - 1);
+
         if (cullFaceEnabled) glEnable(GL_CULL_FACE);
         
-        // 11. Limpeza
+        // Cleanup buffers
         glDeleteFramebuffers(1, &captureFBO);
         glDeleteRenderbuffers(1, &captureRBO);
         
+        // Generate IBL maps
         GenerateIrradianceMap();
         GeneratePrefilterMap();
         GenerateBRDFLUT();
 
-        std::cout << "✓ Environment Cubemap gerado com sucesso!" << std::endl;
-        std::cout << "  - Resolução: " << CUBEMAP_SIZE << "x" << CUBEMAP_SIZE << " por face" << std::endl;
-        std::cout << "  - Formato: RGB16F (HDR)" << std::endl;
-        std::cout << "  - Mipmaps: Gerados" << std::endl;
+        std::cout << "[IBL] Environment maps generated successfully." << std::endl;
     }
     
     void GenerateIrradianceMap() {
@@ -313,13 +294,18 @@ public:
         glBindTexture(GL_TEXTURE_CUBE_MAP, irradianceMap);
         for (unsigned int i = 0; i < 6; ++i) {
             glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 
-                         IRRADIANCE_SIZE, IRRADIANCE_SIZE, 0, GL_RGB, GL_FLOAT, nullptr);
+                        IRRADIANCE_SIZE, IRRADIANCE_SIZE, 0, GL_RGB, GL_FLOAT, nullptr);
         }
+        
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        
+        // Fix: Irradiance map is diffuse and doesn't need mipmaps
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, 0);
 
         unsigned int captureFBO, captureRBO;
         glGenFramebuffers(1, &captureFBO);
@@ -328,6 +314,7 @@ public:
         glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, IRRADIANCE_SIZE, IRRADIANCE_SIZE);
 
+        // Assuming IrradianceConvolutionFragment is available in CustomShaders
         Shader irradianceShader;
         irradianceShader.CompileFromSource(EquirectToCubeVertex, CustomShaders::IrradianceConvolutionFragment);
 
@@ -357,27 +344,38 @@ public:
         }
 
         if (cullEnabled) glEnable(GL_CULL_FACE);
+        
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDeleteFramebuffers(1, &captureFBO);
         glDeleteRenderbuffers(1, &captureRBO);
-        
-        std::cout << "✓ Irradiance Map gerado." << std::endl;
     }
 
     void GeneratePrefilterMap() {
         glGenTextures(1, &prefilterMap);
         glBindTexture(GL_TEXTURE_CUBE_MAP, prefilterMap);
-        for (unsigned int i = 0; i < 6; ++i) {
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 
-                         PREFILTER_SIZE, PREFILTER_SIZE, 0, GL_RGB, GL_FLOAT, nullptr);
+        
+        // Pre-allocate mipmap levels
+        unsigned int maxMipLevels = 5;
+        for (unsigned int mip = 0; mip < maxMipLevels; ++mip) {
+            unsigned int mipWidth  = PREFILTER_SIZE * std::pow(0.5, mip);
+            unsigned int mipHeight = PREFILTER_SIZE * std::pow(0.5, mip);
+            for (unsigned int i = 0; i < 6; ++i) {
+                glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, mip, GL_RGB16F, 
+                            mipWidth, mipHeight, 0, GL_RGB, GL_FLOAT, nullptr);
+            }
         }
+        
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         
-        glGenerateMipmap(GL_TEXTURE_CUBE_MAP); // Importante: Aloca memória para os mips
+        // Fix: Ensure only generated mip levels are accessed
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, maxMipLevels - 1);
+        
+        glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
 
         Shader prefilterShader;
         prefilterShader.CompileFromSource(EquirectToCubeVertex, CustomShaders::PrefilterFragment);
@@ -401,9 +399,7 @@ public:
         GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
         glDisable(GL_CULL_FACE);
 
-        unsigned int maxMipLevels = 5;
         for (unsigned int mip = 0; mip < maxMipLevels; ++mip) {
-            // Resize framebuffer according to mip-level size
             unsigned int mipWidth  = PREFILTER_SIZE * std::pow(0.5, mip);
             unsigned int mipHeight = PREFILTER_SIZE * std::pow(0.5, mip);
             
@@ -425,17 +421,14 @@ public:
         }
 
         if (cullEnabled) glEnable(GL_CULL_FACE);
+        
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDeleteFramebuffers(1, &captureFBO);
         glDeleteRenderbuffers(1, &captureRBO);
-        
-        std::cout << "✓ Prefilter Map gerado." << std::endl;
     }
 
     void GenerateBRDFLUT() {
         glGenTextures(1, &brdfLUTTexture);
-
-        // Pre-alocar memória para a textura LUT (512x512)
         glBindTexture(GL_TEXTURE_2D, brdfLUTTexture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, 512, 512, 0, GL_RG, GL_FLOAT, 0);
         
@@ -444,7 +437,6 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        // Setup Framebuffer
         unsigned int captureFBO, captureRBO;
         glGenFramebuffers(1, &captureFBO);
         glGenRenderbuffers(1, &captureRBO);
@@ -453,7 +445,6 @@ public:
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, brdfLUTTexture, 0);
 
-        // Setup Shader e Quad
         Shader brdfShader;
         brdfShader.CompileFromSource(BrdfVertexShader, BrdfFragmentShader);
         brdfShader.Use();
@@ -461,11 +452,9 @@ public:
         glViewport(0, 0, 512, 512);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Renderizar Quad NDC (-1 a 1)
-        // Aqui criamos um quad manual rápido para não depender de outras classes
+        // Render simple quad for BRDF LUT
         unsigned int quadVAO = 0, quadVBO;
         float quadVertices[] = {
-            // positions        // texture Coords
             -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
             -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
              1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
@@ -490,31 +479,45 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDeleteFramebuffers(1, &captureFBO);
         glDeleteRenderbuffers(1, &captureRBO);
-        
-        std::cout << "✓ BRDF LUT gerada." << std::endl;
     }
 
     unsigned int GetCubemapID() const { return envCubemap; }
     unsigned int GetIrradianceMapID() const { return irradianceMap; }
     unsigned int GetPrefilterMapID() const { return prefilterMap; }
+    unsigned int GetBrdfLUTID() const { return brdfLUTTexture; }
 
     bool IsValid() const { return envCubemap != 0; }
 
-    // Prevenir cópia
+    // Delete copy constructor and assignment operator
     EnvironmentMap(const EnvironmentMap&) = delete;
     EnvironmentMap& operator=(const EnvironmentMap&) = delete;
 
-    // Permitir movimentação
+    // Allow move semantics
     EnvironmentMap(EnvironmentMap&& other) noexcept 
-        : envCubemap(other.envCubemap) {
+        : envCubemap(other.envCubemap), irradianceMap(other.irradianceMap), 
+          prefilterMap(other.prefilterMap), brdfLUTTexture(other.brdfLUTTexture) {
         other.envCubemap = 0;
+        other.irradianceMap = 0;
+        other.prefilterMap = 0;
+        other.brdfLUTTexture = 0;
     }
 
     EnvironmentMap& operator=(EnvironmentMap&& other) noexcept {
         if (this != &other) {
             if (envCubemap) glDeleteTextures(1, &envCubemap);
+            if (irradianceMap) glDeleteTextures(1, &irradianceMap);
+            if (prefilterMap) glDeleteTextures(1, &prefilterMap);
+            if (brdfLUTTexture) glDeleteTextures(1, &brdfLUTTexture);
+            
             envCubemap = other.envCubemap;
+            irradianceMap = other.irradianceMap;
+            prefilterMap = other.prefilterMap;
+            brdfLUTTexture = other.brdfLUTTexture;
+            
             other.envCubemap = 0;
+            other.irradianceMap = 0;
+            other.prefilterMap = 0;
+            other.brdfLUTTexture = 0;
         }
         return *this;
     }

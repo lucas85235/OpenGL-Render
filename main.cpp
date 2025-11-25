@@ -154,39 +154,39 @@ private:
         auto floorMat = std::make_shared<Material>(MaterialLibrary::CreatePhong(glm::vec3(0.1f, 0.1f, 0.1f)));
 
         // 2. Criar Entidade NAVE
-        // playerShipEntity = activeScene->CreateEntity("PlayerShip");
+        playerShipEntity = activeScene->CreateEntity("PlayerShip");
         
-        // // Adiciona componente de renderização (carrega o modelo)
-        // auto model = std::make_shared<Model>("models/car/Intergalactic_Spaceship-(Wavefront).obj");
-        // if (model->GetMeshCount() > 0) {
-        //     availableMaterials.push_back(model->GetMesh(0).GetMaterial());
-        // }
+        // Adiciona componente de renderização (carrega o modelo)
+        auto model = std::make_shared<Model>("models/DamagedHelmet/DamagedHelmet.glb");
+        if (model->GetMeshCount() > 0) {
+            availableMaterials.push_back(model->GetMesh(0).GetMaterial());
+        }
 
-        // auto renderComp = playerShipEntity->AddComponent<MeshRenderer>(model);
-        // renderComp->SetMaterial(availableMaterials[0]);
+        auto renderComp = playerShipEntity->AddComponent<MeshRenderer>(model);
+        renderComp->SetMaterial(availableMaterials[0]);
 
-        // // Adiciona comportamento (Script)
-        // playerShipEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 30.0f, 0.0f)); // Gira 30 graus/s no Y
-        // playerShipEntity->transform.Scale = glm::vec3(0.5f);
-        // playerShipEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+        // Adiciona comportamento (Script)
+        playerShipEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 30.0f, 0.0f)); // Gira 30 graus/s no Y
+        playerShipEntity->transform.Scale = glm::vec3(0.5f);
+        playerShipEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
 
-        // // 3. Criar Entidade CHÃO
-        // auto floorEntity = activeScene->CreateEntity("Floor");
-        // auto floorMesh = std::make_shared<Mesh>(ModelFactory::CreatePlaneMesh(1.0f));
-        // auto floorRender = floorEntity->AddComponent<SimpleMeshRenderer>(floorMesh);
-        // floorRender->SetMaterial(floorMat);
-        // floorEntity->transform.Scale = glm::vec3(20.0f);
-        // floorEntity->transform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
+        // 3. Criar Entidade CHÃO
+        auto floorEntity = activeScene->CreateEntity("Floor");
+        auto floorMesh = std::make_shared<Mesh>(ModelFactory::CreatePlaneMesh(1.0f));
+        auto floorRender = floorEntity->AddComponent<SimpleMeshRenderer>(floorMesh);
+        floorRender->SetMaterial(floorMat);
+        floorEntity->transform.Scale = glm::vec3(20.0f);
+        floorEntity->transform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
         
-        auto sphereEntity = activeScene->CreateEntity("Sphere");
-        auto spherMesh = std::make_shared<Mesh>(ModelFactory::CreateSphere(1.0f));
-        sphereEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
-        auto redMeshComp = sphereEntity->AddComponent<SimpleMeshRenderer>(spherMesh);
-        auto metalicMaterial = std::make_shared<Material>();
-        metalicMaterial->SetAlbedo(glm::vec3(0.0f, 0.0f, 0.0f));
-        metalicMaterial->SetMetallic(1.0f);
-        metalicMaterial->SetRoughness(0.0f);
-        redMeshComp->SetMaterial(metalicMaterial);
+        // auto sphereEntity = activeScene->CreateEntity("Sphere");
+        // auto spherMesh = std::make_shared<Mesh>(ModelFactory::CreateSphere(1.0f));
+        // sphereEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+        // auto redMeshComp = sphereEntity->AddComponent<SimpleMeshRenderer>(spherMesh);
+        // auto metalicMaterial = std::make_shared<Material>();
+        // metalicMaterial->SetAlbedo(glm::vec3(1.0f, 0.0f, 0.0f));
+        // metalicMaterial->SetMetallic(1.0f);
+        // metalicMaterial->SetRoughness(0.5f);
+        // redMeshComp->SetMaterial(metalicMaterial);
 
         // --- ILUMINAÇÃO ---
 
@@ -199,6 +199,10 @@ private:
                 envMap.brdfLUTTexture
             );
         }
+
+        renderer.DebugCubemap(envMap.envCubemap, "Environment Map");
+        renderer.DebugCubemap(envMap.irradianceMap, "Irradiance Map");
+        renderer.DebugCubemap(envMap.prefilterMap, "Prefilter Map");
 
         // 1. SOL (Directional Light)
         auto sunEntity = activeScene->CreateEntity("Sun");

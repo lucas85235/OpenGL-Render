@@ -221,7 +221,7 @@ in vec3 Normal;
 in vec2 TexCoords;
 in mat3 TBN;
 
-// --- ESTRUTURAS DE LUZ ---
+// --- LIGHT STRUCTURES ---
 struct DirectionalLight {
     vec3 direction;
     vec3 color;
@@ -232,7 +232,7 @@ struct PointLight {
     vec3 position;
     vec3 color;
     float intensity;
-    float radius; // Usado para attenuation (opcional mas bom para performance)
+    float radius;
 };
 
 #define MAX_POINT_LIGHTS 4 
@@ -240,11 +240,11 @@ struct PointLight {
 // --- UNIFORMS ---
 uniform DirectionalLight dirLight;
 uniform PointLight pointLights[MAX_POINT_LIGHTS];
-uniform int numPointLights; // Quantas luzes ativas temos?
+uniform int numPointLights;
 
 uniform vec3 viewPos;
 
-// Material e Texturas (Mesmo de antes)
+// Material
 struct Material {
     vec3 albedo;
     float metallic;
@@ -255,6 +255,7 @@ struct Material {
 };
 uniform Material material;
 
+// Textures
 uniform sampler2D texture_diffuse1;
 uniform sampler2D texture_normal1;
 uniform sampler2D texture_metallic1;
@@ -269,6 +270,7 @@ uniform bool hasTextureRoughness;
 uniform bool hasTextureAO;
 uniform bool hasTextureEmission;
 
+// IBL Maps
 uniform samplerCube irradianceMap;
 uniform samplerCube prefilterMap;
 uniform sampler2D   brdfLUT;
@@ -276,33 +278,7 @@ uniform bool        useIBL;
 
 const float PI = 3.14159265359;
 
-// --- FUNÇÕES PBR (Distribuição, Geometria, Fresnel) ---
-float DistributionGGX(vec3 N, vec3 H, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-    float num = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-    return num / max(denom, 0.0000001);
-}
-
-float GeometrySchlickGGX(float NdotV, float roughness) {
-    float r = (roughness + 1.0);
-    float k = (r*r) / 8.0;
-    float num = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-    return num / denom;
-}
-
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
-    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
-    return ggx1 * ggx2;
-}
+// --- SAFE PBR FUNCTIONS ---
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
@@ -312,112 +288,173 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// --- CÁLCULO DE UMA ÚNICA LUZ PBR ---
+float DistributionGGX(vec3 N, vec3 H, float roughness) {
+    float a = max(roughness * roughness, 0.001);
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+    float num = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+    return num / max(denom, 0.0001);
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness) {
+    float r = (roughness + 1.0);
+    float k = (r*r) / 8.0;
+    float num = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+    return num / max(denom, 0.0001);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0001);
+    float NdotL = max(dot(N, L), 0.0001);
+    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+// --- LIGHT CALCULATION ---
 vec3 CalcPBRLight(vec3 L, vec3 V, vec3 N, vec3 F0, vec3 albedo, float metallic, float roughness, vec3 radiance) {
     vec3 H = normalize(V + L);
     
-    // Cook-Torrance BRDF
     float NDF = DistributionGGX(N, H, roughness);   
     float G   = GeometrySmith(N, V, L, roughness);      
     vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);
        
     vec3 numerator    = NDF * G * F; 
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+    
+    float NdotV = max(dot(N, V), 0.0001);
+    float NdotL = max(dot(N, L), 0.0001);
+    float denominator = 4.0 * NdotV * NdotL + 0.0001;
+    
     vec3 specular = numerator / denominator;
     
     vec3 kS = F;
     vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - metallic;	  
-
-    float NdotL = max(dot(N, L), 0.0);        
+    kD *= 1.0 - metallic;     
 
     return (kD * albedo / PI + specular) * radiance * NdotL;
 }
 
 void main() {
-    // 1. Ler Propriedades do Material
+    // 1. Material Properties
     vec3 albedo = material.albedo;
-    if (hasTextureDiffuse) albedo = texture(texture_diffuse1, TexCoords).rgb;
-    
+    if (hasTextureDiffuse) {
+        vec4 albedoTex = texture(texture_diffuse1, TexCoords / 0.5);
+        albedo = pow(albedoTex.rgb, vec3(2.2)); // Convert to linear space
+    }
+    // FragColor = vec4(albedo, 1.0);
+    FragColor = vec4(vec3(TexCoords.x, TexCoords.y, 0.0f), 1.0);
+    return;
+
     float metallic = material.metallic;
     if (hasTextureMetallic) metallic = texture(texture_metallic1, TexCoords).r;
     
     float roughness = material.roughness;
     if (hasTextureRoughness) roughness = texture(texture_roughness1, TexCoords).r;
+    
+    // Clamp roughness to prevent artifacts
+    roughness = clamp(roughness, 0.04, 1.0);
 
     float ao = material.ao;
     if (hasTextureAO) ao = texture(texture_ao1, TexCoords).r;
 
-    // Normal Mapping
+    // 2. Normal / Geometry Data
     vec3 N = normalize(Normal);
     if (hasTextureNormal) {
-        N = texture(texture_normal1, TexCoords).rgb;
-        N = N * 2.0 - 1.0;
-        N = normalize(TBN * N);
+        vec3 normalMap = texture(texture_normal1, TexCoords).rgb;
+        normalMap = normalMap * 2.0 - 1.0;
+        N = normalize(TBN * normalMap);
     }
     vec3 V = normalize(viewPos - FragPos);
+    
+    // FIX: Ensure V and N are properly oriented
+    float NdotV = dot(N, V);
+    if (NdotV < 0.0) {
+        N = -N; // Flip normal if facing away
+        NdotV = -NdotV;
+    }
+    NdotV = max(NdotV, 0.0001);
 
+    // 3. Fresnel Base Reflectivity
     vec3 F0 = vec3(0.04); 
     F0 = mix(F0, albedo, metallic);
 
-    // --- LOOP DE ILUMINAÇÃO ---
+    // --- DIRECT LIGHTING ---
     vec3 Lo = vec3(0.0);
 
-    // 1. Luz Direcional (Sol)
+    // Directional Light
     {
         vec3 L = normalize(-dirLight.direction);
         vec3 radiance = dirLight.color * dirLight.intensity;
         Lo += CalcPBRLight(L, V, N, F0, albedo, metallic, roughness, radiance);
     }
 
-    // 2. Luzes Pontuais (Lâmpadas)
+    // Point Lights
     for(int i = 0; i < numPointLights; ++i) {
         vec3 L = normalize(pointLights[i].position - FragPos);
         float distance = length(pointLights[i].position - FragPos);
-        
-        // Inverse Square Law (Física Real)
         float attenuation = 1.0 / (distance * distance);
         vec3 radiance = pointLights[i].color * pointLights[i].intensity * attenuation;
 
         Lo += CalcPBRLight(L, V, N, F0, albedo, metallic, roughness, radiance);
     }
 
-    // 3. Ambiente + Emissão
-    vec3 ambient;
+    // --- INDIRECT LIGHTING (IBL) ---
+    vec3 ambient = vec3(0.0);
     
     if (useIBL) {
-        // 1. IBL Difusa (Irradiance)
-        vec3 kS = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+        // FIX: Use proper NdotV for Fresnel calculation
+        vec3 F = fresnelSchlickRoughness(NdotV, F0, roughness);
+        
+        vec3 kS = F;
         vec3 kD = 1.0 - kS;
         kD *= 1.0 - metallic;
         
+        // Diffuse IBL
         vec3 irradiance = texture(irradianceMap, N).rgb;
-        vec3 diffuse    = irradiance * albedo;
+        vec3 diffuse = kD * irradiance * albedo;
         
-        // 2. IBL Especular (Prefilter + BRDF)
-        const float MAX_REFLECTION_LOD = 4.0;
+        // Specular IBL
+        // FIX: Calculate reflection vector properly
         vec3 R = reflect(-V, N);
-        vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
         
-        // Ler BRDF LUT (Scale e Bias para Fresnel)
-        vec2 brdf  = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
-        vec3 specular = prefilteredColor * (F0 * brdf.x + brdf.y);
+        // FIX: Use proper mip level calculation
+        const float MAX_REFLECTION_LOD = 4.0;
+        float lod = roughness * MAX_REFLECTION_LOD;
+        vec3 prefilteredColor = textureLod(prefilterMap, R, lod).rgb;
+        
+        // FIX: Sample BRDF LUT with correct coordinates (NdotV, roughness)
+        vec2 envBRDF = texture(brdfLUT, vec2(NdotV, roughness)).rg;
+        
+        // FIX: Correct specular IBL calculation
+        vec3 specular = prefilteredColor * (F0 * envBRDF.x + envBRDF.y);
 
-        ambient = (kD * diffuse + specular) * ao;
+        ambient = (diffuse + specular) * ao;
     } else {
-        // Fallback simples se não tiver IBL
+        // Fallback ambient
         ambient = vec3(0.03) * albedo * ao;
     }
 
+    // --- EMISSION ---
     vec3 emission = vec3(0.0);
-    if (hasTextureEmission) emission = texture(texture_emission1, TexCoords).rgb;
-    else emission = material.emission;
+    if (hasTextureEmission) {
+        emission = texture(texture_emission1, TexCoords).rgb;
+        emission = pow(emission, vec3(2.2)); // Convert to linear space
+    } else {
+        emission = material.emission;
+    }
     emission *= material.emissionStrength;
 
+    // --- COMPOSITION ---
     vec3 color = ambient + Lo + emission;
 
-    // HDR Tonemapping & Gamma
+    // Tone Mapping (Reinhard)
     color = color / (color + vec3(1.0));
+    
+    // Gamma Correction
     color = pow(color, vec3(1.0/2.2));
 
     FragColor = vec4(color, 1.0);
