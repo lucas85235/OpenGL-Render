@@ -183,7 +183,7 @@ private:
         sphereEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
         auto redMeshComp = sphereEntity->AddComponent<SimpleMeshRenderer>(spherMesh);
         auto metalicMaterial = std::make_shared<Material>();
-        metalicMaterial->SetAlbedo(glm::vec3(1.0f, 0.0f, 0.0f));
+        metalicMaterial->SetAlbedo(glm::vec3(0.0f, 0.0f, 0.0f));
         metalicMaterial->SetMetallic(1.0f);
         metalicMaterial->SetRoughness(0.0f);
         redMeshComp->SetMaterial(metalicMaterial);
@@ -191,6 +191,14 @@ private:
         // --- ILUMINAÇÃO ---
 
         envMap.LoadFromHDR("models/golden_gate_hills_8k.hdr");
+
+        if (envMap.envCubemap) {
+            renderer.SetIBLMaps(
+                envMap.GetIrradianceMapID(), 
+                envMap.GetPrefilterMapID(), 
+                envMap.brdfLUTTexture
+            );
+        }
 
         // 1. SOL (Directional Light)
         auto sunEntity = activeScene->CreateEntity("Sun");

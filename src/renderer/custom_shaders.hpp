@@ -269,6 +269,11 @@ uniform bool hasTextureRoughness;
 uniform bool hasTextureAO;
 uniform bool hasTextureEmission;
 
+uniform samplerCube irradianceMap;
+uniform samplerCube prefilterMap;
+uniform sampler2D   brdfLUT;
+uniform bool        useIBL;
+
 const float PI = 3.14159265359;
 
 // --- FUNÇÕES PBR (Distribuição, Geometria, Fresnel) ---
@@ -303,6 +308,10 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
 // --- CÁLCULO DE UMA ÚNICA LUZ PBR ---
 vec3 CalcPBRLight(vec3 L, vec3 V, vec3 N, vec3 F0, vec3 albedo, float metallic, float roughness, vec3 radiance) {
     vec3 H = normalize(V + L);
@@ -335,7 +344,7 @@ void main() {
     
     float roughness = material.roughness;
     if (hasTextureRoughness) roughness = texture(texture_roughness1, TexCoords).r;
-    
+
     float ao = material.ao;
     if (hasTextureAO) ao = texture(texture_ao1, TexCoords).r;
 
@@ -374,8 +383,32 @@ void main() {
     }
 
     // 3. Ambiente + Emissão
-    vec3 ambient = vec3(0.03) * albedo * ao; // IBL virá aqui depois
+    vec3 ambient;
     
+    if (useIBL) {
+        // 1. IBL Difusa (Irradiance)
+        vec3 kS = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+        vec3 kD = 1.0 - kS;
+        kD *= 1.0 - metallic;
+        
+        vec3 irradiance = texture(irradianceMap, N).rgb;
+        vec3 diffuse    = irradiance * albedo;
+        
+        // 2. IBL Especular (Prefilter + BRDF)
+        const float MAX_REFLECTION_LOD = 4.0;
+        vec3 R = reflect(-V, N);
+        vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+        
+        // Ler BRDF LUT (Scale e Bias para Fresnel)
+        vec2 brdf  = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+        vec3 specular = prefilteredColor * (F0 * brdf.x + brdf.y);
+
+        ambient = (kD * diffuse + specular) * ao;
+    } else {
+        // Fallback simples se não tiver IBL
+        ambient = vec3(0.03) * albedo * ao;
+    }
+
     vec3 emission = vec3(0.0);
     if (hasTextureEmission) emission = texture(texture_emission1, TexCoords).rgb;
     else emission = material.emission;

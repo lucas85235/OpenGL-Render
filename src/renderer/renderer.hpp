@@ -55,6 +55,11 @@ private:
     DirectionalLight sunLight;
     std::vector<PointLightData> pointLights;
 
+    unsigned int iblIrradiance = 0;
+    unsigned int iblPrefilter = 0;
+    unsigned int iblBrdf = 0;
+    bool useIBL = false;
+
     void initRenderData() {
         // Configuração do Quad de Tela Cheia
         float quadVertices[] = { 
@@ -102,6 +107,13 @@ public:
         glEnable(GL_CULL_FACE);
 
         initRenderData();
+    }
+
+    void SetIBLMaps(unsigned int irradiance, unsigned int prefilter, unsigned int brdf) {
+        iblIrradiance = irradiance;
+        iblPrefilter = prefilter;
+        iblBrdf = brdf;
+        useIBL = true;
     }
 
     void BeginScene(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos) {
@@ -173,6 +185,26 @@ public:
             activeShader->SetVec3(base + ".color", pointLights[i].color.x, pointLights[i].color.y, pointLights[i].color.z);
             activeShader->SetFloat(base + ".intensity", pointLights[i].intensity);
             activeShader->SetFloat(base + ".radius", pointLights[i].radius);
+        }
+
+        if (useIBL) {
+            activeShader->SetBool("useIBL", true);
+            
+            // Slots reservados para IBL (ex: 5, 6, 7)
+            // Assumindo que materiais usam 0, 1, 2, 3, 4
+            glActiveTexture(GL_TEXTURE5);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, iblIrradiance);
+            activeShader->SetInt("irradianceMap", 5);
+
+            glActiveTexture(GL_TEXTURE6);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, iblPrefilter);
+            activeShader->SetInt("prefilterMap", 6);
+
+            glActiveTexture(GL_TEXTURE7);
+            glBindTexture(GL_TEXTURE_2D, iblBrdf);
+            activeShader->SetInt("brdfLUT", 7);
+        } else {
+            activeShader->SetBool("useIBL", false);
         }
 
         // Render Loop
