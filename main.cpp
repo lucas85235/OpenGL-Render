@@ -170,7 +170,7 @@ private:
         
         // --- ILUMINAÇÃO ---
 
-        envMap.LoadFromHDR("models/golden_gate_hills_4k.hdr");
+        envMap.LoadFromHDR("models/golden_gate_hills_8k.hdr");
 
         // 1. SOL (Directional Light)
         auto sunEntity = activeScene->CreateEntity("Sun");

@@ -10,13 +10,13 @@
 #include "render_command.hpp"
 #include "shader.hpp"
 #include "model.hpp"
+#include "skybox_manager.hpp"
 
 // Dados globais da cena (Câmera, Luzes)
 struct SceneData {
     glm::mat4 viewMatrix;
     glm::mat4 projectionMatrix;
     glm::vec3 cameraPos;
-    // Futuramente: Adicionar array de luzes aqui
     glm::vec3 lightPos;
     glm::vec3 lightColor;
 };
@@ -42,24 +42,22 @@ private:
     std::vector<RenderCommand> transparentQueue;
 
     SceneData sceneData;
-    Shader* activeShader; // Shader padrão (PBR)
+    Shader* activeShader;
 
     // Recursos Internos do Renderer
     unsigned int screenQuadVAO = 0;
     unsigned int screenQuadVBO = 0;
 
     Shader* skyboxShader = nullptr;
-    unsigned int skyboxVAO = 0;
-    unsigned int skyboxVBO = 0;
+    SkyboxManager skyboxManager; // Gerenciador único do skybox
 
     // FILAS DE LUZ
-    DirectionalLight sunLight; // Apenas 1 sol por enquanto
+    DirectionalLight sunLight;
     std::vector<PointLightData> pointLights;
 
     void initRenderData() {
-        // Configuração do Quad de Tela Cheia (NDC: -1 a 1)
+        // Configuração do Quad de Tela Cheia
         float quadVertices[] = { 
-            // posições       // texCoords
             -1.0f,  1.0f,     0.0f, 1.0f,
             -1.0f, -1.0f,     0.0f, 0.0f,
              1.0f, -1.0f,     1.0f, 0.0f,
@@ -82,60 +80,10 @@ private:
         
         glBindVertexArray(0);
 
-        // --- INICIALIZAÇÃO DO CUBO DO SKYBOX ---
-        float skyboxVertices[] = {
-            // posições          
-            -1.0f,  1.0f, -1.0f,
-            -1.0f, -1.0f, -1.0f,
-             1.0f, -1.0f, -1.0f,
-             1.0f, -1.0f, -1.0f,
-             1.0f,  1.0f, -1.0f,
-            -1.0f,  1.0f, -1.0f,
-
-            -1.0f, -1.0f,  1.0f,
-            -1.0f, -1.0f, -1.0f,
-            -1.0f,  1.0f, -1.0f,
-            -1.0f,  1.0f, -1.0f,
-            -1.0f,  1.0f,  1.0f,
-            -1.0f, -1.0f,  1.0f,
-
-             1.0f, -1.0f, -1.0f,
-             1.0f, -1.0f,  1.0f,
-             1.0f,  1.0f,  1.0f,
-             1.0f,  1.0f,  1.0f,
-             1.0f,  1.0f, -1.0f,
-             1.0f, -1.0f, -1.0f,
-
-            -1.0f, -1.0f,  1.0f,
-            -1.0f,  1.0f,  1.0f,
-             1.0f,  1.0f,  1.0f,
-             1.0f,  1.0f,  1.0f,
-             1.0f, -1.0f,  1.0f,
-            -1.0f, -1.0f,  1.0f,
-
-            -1.0f,  1.0f, -1.0f,
-             1.0f,  1.0f, -1.0f,
-             1.0f,  1.0f,  1.0f,
-             1.0f,  1.0f,  1.0f,
-            -1.0f,  1.0f,  1.0f,
-            -1.0f,  1.0f, -1.0f,
-
-            -1.0f, -1.0f, -1.0f,
-            -1.0f, -1.0f,  1.0f,
-             1.0f, -1.0f, -1.0f,
-             1.0f, -1.0f, -1.0f,
-            -1.0f, -1.0f,  1.0f,
-             1.0f, -1.0f,  1.0f
-        };
-
-        glGenVertexArrays(1, &skyboxVAO);
-        glGenBuffers(1, &skyboxVBO);
-        glBindVertexArray(skyboxVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-        glBindVertexArray(0);
+        // Inicializar Skybox Manager
+        if (!skyboxManager.Initialize()) {
+            std::cerr << "Falha ao inicializar SkyboxManager no Renderer!" << std::endl;
+        }
     }
 
 public:
@@ -144,8 +92,6 @@ public:
     ~Renderer() {
         if (screenQuadVAO) glDeleteVertexArrays(1, &screenQuadVAO);
         if (screenQuadVBO) glDeleteBuffers(1, &screenQuadVBO);
-        if (skyboxVAO) glDeleteVertexArrays(1, &skyboxVAO);
-        if (skyboxVBO) glDeleteBuffers(1, &skyboxVBO);
     }
 
     void Init(Shader* defaultShader, Shader* sbShader = nullptr) {
@@ -154,85 +100,59 @@ public:
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
-        glDisable(GL_CULL_FACE); // Desabilitar face culling por enquanto
 
         initRenderData();
     }
 
-    // 1. Início do Frame: Configura globais
     void BeginScene(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos) {
         sceneData.viewMatrix = view;
         sceneData.projectionMatrix = proj;
         sceneData.cameraPos = camPos;
-        
-        // Setup temporário de luz (hardcoded por enquanto)
         sceneData.lightPos = glm::vec3(2.0f, 4.0f, 3.0f);
         sceneData.lightColor = glm::vec3(1.0f);
 
-        // Limpar filas antigas
         opaqueQueue.clear();
         transparentQueue.clear();
         pointLights.clear();
     }
 
-    // --- SUBMIT LIGHTS ---
     void SubmitDirectionalLight(const DirectionalLight& light) {
         sunLight = light;
     }
 
     void SubmitPointLight(const PointLightData& light) {
-        if (pointLights.size() < 4) { // Limite do Shader (MAX_POINT_LIGHTS)
+        if (pointLights.size() < 4) {
             pointLights.push_back(light);
         }
     }
 
-    // 2. Submissão: Alguém pede para ser desenhado
     void Submit(const std::shared_ptr<Model>& model, const glm::mat4& transform) {
-        // Itera sobre todos os meshes do modelo
         for(size_t i = 0; i < model->GetMeshCount(); i++) {
-            // Precisamos do const_cast porque seus getters retornam const Mesh&
-            // Idealmente, ajuste o Model para retornar ponteiros ou referências não-const se necessário
             const Mesh& meshRef = model->GetMesh(i);
             Mesh* meshPtr = const_cast<Mesh*>(&meshRef); 
             Material* matPtr = meshPtr->GetMaterial().get();
 
-            // Calcular distância para ordenação (simples distância Euclidiana)
             float dist = glm::length(sceneData.cameraPos - glm::vec3(transform[3]));
-
-            // Decidir fila (Opaco vs Transparente)
-            // Por enquanto, tudo é opaco. Futuramente checar matPtr->IsTransparent()
             opaqueQueue.emplace_back(meshPtr, matPtr, transform, dist);
         }
     }
 
-    // 2. Submissão: Alguém pede para ser desenhado
     void SubmitMesh(const Mesh& mesh, const glm::mat4& transform) {
-        // Itera sobre todos os meshes do modelo
-
-        // Precisamos do const_cast porque seus getters retornam const Mesh&
-        // Idealmente, ajuste o Model para retornar ponteiros ou referências não-const se necessário
-        // const Mesh& meshRef = *mesh;
         Mesh* meshPtr = const_cast<Mesh*>(&mesh); 
         Material* matPtr = meshPtr->GetMaterial().get();
 
-        // Calcular distância para ordenação (simples distância Euclidiana)
         float dist = glm::length(sceneData.cameraPos - glm::vec3(transform[3]));
-
-        // Decidir fila (Opaco vs Transparente)
-        // Por enquanto, tudo é opaco. Futuramente checar matPtr->IsTransparent()
         opaqueQueue.emplace_back(meshPtr, matPtr, transform, dist);
     }
 
-    // 3. Fim do Frame: Onde a mágica acontece
     void EndScene() {
-        // PASSO A: Ordenação
-        // Opacos: Frente -> Trás (Reduz Overdraw, ajuda o Z-Buffer)
+        // Ordenação
         std::sort(opaqueQueue.begin(), opaqueQueue.end(), 
             [](const RenderCommand& a, const RenderCommand& b) {
                 return a.distanceToCamera < b.distanceToCamera;
             });
 
-        // PASSO B: Configuração Global do Shader
+        // Configuração Global do Shader
         activeShader->Use();
         activeShader->SetMat4("view", glm::value_ptr(sceneData.viewMatrix));
         activeShader->SetMat4("projection", glm::value_ptr(sceneData.projectionMatrix));
@@ -240,14 +160,11 @@ public:
         activeShader->SetVec3("lightPos", sceneData.lightPos.x, sceneData.lightPos.y, sceneData.lightPos.z);
         activeShader->SetVec3("lightColor", sceneData.lightColor.x, sceneData.lightColor.y, sceneData.lightColor.z);
 
-        // ENVIO DE LUZES PARA O SHADER
-        
-        // 1. Sol
+        // Envio de Luzes
         activeShader->SetVec3("dirLight.direction", sunLight.direction.x, sunLight.direction.y, sunLight.direction.z);
         activeShader->SetVec3("dirLight.color", sunLight.color.x, sunLight.color.y, sunLight.color.z);
         activeShader->SetFloat("dirLight.intensity", sunLight.intensity);
 
-        // 2. Point Lights
         activeShader->SetInt("numPointLights", (int)pointLights.size());
         
         for (size_t i = 0; i < pointLights.size(); i++) {
@@ -258,38 +175,52 @@ public:
             activeShader->SetFloat(base + ".radius", pointLights[i].radius);
         }
 
-        // PASSO C: Render Loop (Geometry Pass)
+        // Render Loop
         for (const auto& cmd : opaqueQueue) {
             RenderMesh(cmd);
         }
     }
 
+    /**
+     * @brief Renderiza o skybox usando o gerenciador compartilhado
+     * @param cubemapID ID do cubemap texture
+     * @param view Matriz de view
+     * @param proj Matriz de projeção
+     */
     void DrawSkybox(unsigned int cubemapID, const glm::mat4& view, const glm::mat4& proj) {
-        if (!skyboxShader) return;
+        if (!skyboxShader || !skyboxManager.IsInitialized()) {
+            return;
+        }
 
+        // Salvar e modificar estados OpenGL
         glDepthFunc(GL_LEQUAL);
+        GLboolean cullFaceWasEnabled = glIsEnabled(GL_CULL_FACE);
+        glDisable(GL_CULL_FACE);
         
+        // Configurar shader
         skyboxShader->Use();
         skyboxShader->SetMat4("view", glm::value_ptr(view));
         skyboxShader->SetMat4("projection", glm::value_ptr(proj));
         skyboxShader->SetInt("skybox", 0);
 
+        // Bind cubemap
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
         
-        glBindVertexArray(skyboxVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
-        glBindVertexArray(0);
+        // Renderizar usando SkyboxManager
+        skyboxManager.Render();
 
-        // 2. Restaurar profundidade padrão
+        // Restaurar estados
         glDepthFunc(GL_LESS);
+        if (cullFaceWasEnabled) glEnable(GL_CULL_FACE);
     }
 
-    void SetSkyboxShader(Shader* s) { skyboxShader = s; }
+    void SetSkyboxShader(Shader* s) { 
+        skyboxShader = s; 
+    }
 
-    // --- NOVO: Método para desenhar Pós-Processamento ---
     void DrawScreenQuad(Shader& screenShader, unsigned int textureID) {
-        glDisable(GL_DEPTH_TEST); // Pós-processo não precisa de depth test
+        glDisable(GL_DEPTH_TEST);
         
         screenShader.Use();
         screenShader.SetInt("screenTexture", 0);
@@ -301,10 +232,9 @@ public:
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
         
-        glEnable(GL_DEPTH_TEST); // Restaura para o próximo frame
+        glEnable(GL_DEPTH_TEST);
     }
     
-    // Sobrecarga caso você queira desenhar sem setar textura (ex: shaders procedurais puros)
     void DrawScreenQuad() {
         glDisable(GL_DEPTH_TEST);
         glBindVertexArray(screenQuadVAO);
@@ -315,11 +245,9 @@ public:
 
 private:
     void RenderMesh(const RenderCommand& cmd) {
-        // 1. Configurar Material
         if (cmd.material) {
             cmd.material->Apply(activeShader->GetProgramID());
             
-            // Flags de textura (necessário manter compatibilidade com seu shader atual)
             activeShader->SetBool("hasTextureDiffuse", cmd.material->HasTextureType(TextureType::DIFFUSE));
             activeShader->SetBool("hasTextureNormal", cmd.material->HasTextureType(TextureType::NORMAL));
             activeShader->SetBool("hasTextureMetallic", cmd.material->HasTextureType(TextureType::METALLIC));
@@ -328,19 +256,10 @@ private:
             activeShader->SetBool("hasTextureEmission", cmd.material->HasTextureType(TextureType::EMISSION));
         }
 
-        // 2. Configurar Transform
         activeShader->SetMat4("model", glm::value_ptr(cmd.transform));
 
-        // 3. Draw Call Crua (Acessando internos do Mesh)
-        // Nota: Você precisará tornar Mesh "friend" de Renderer ou expor VAO/Indices
-        // Por hora, vamos supor que vamos adicionar um método "BindAndDraw" no Mesh que não pede shader
-        
-        // Hack temporário: Chamar o Draw do mesh mas ignorar o shader program dentro dele se possível,
-        // ou melhor, adicionar um método Render() limpo na classe Mesh.
-        // Vamos assumir que você adicionou `void RenderPrimitive()` no Mesh.hpp
-        
-        glBindVertexArray(cmd.mesh->GetVAO()); // Você precisará criar esse getter
-        glDrawElements(GL_TRIANGLES, cmd.mesh->GetIndexCount(), GL_UNSIGNED_INT, 0); // E esse getter
+        glBindVertexArray(cmd.mesh->GetVAO());
+        glDrawElements(GL_TRIANGLES, cmd.mesh->GetIndexCount(), GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
     }
 };
