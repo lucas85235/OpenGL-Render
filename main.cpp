@@ -61,7 +61,7 @@ private:
 
     // Assets da Cena
     std::unique_ptr<Scene> activeScene;
-    std::shared_ptr<Entity> playerShipEntity;
+    std::shared_ptr<Entity> modelEntity;
     std::vector<std::shared_ptr<Material>> availableMaterials;
 
     // Estado da Aplicação (Câmera e Inputs)
@@ -145,37 +145,30 @@ private:
         auto plasticMat = std::make_shared<Material>(MaterialLibrary::CreatePlastic());
         auto rubberMat = std::make_shared<Material>(MaterialLibrary::CreateRubber());
         auto neonMat = std::make_shared<Material>(MaterialLibrary::CreateEmissive(glm::vec3(0,1,1), 5.0f));
-
         availableMaterials = { goldMat, silverMat, plasticMat, rubberMat, neonMat };
 
-        // 1. Criar Materiais (Poderia ser um AssetManager, mas vamos deixar aqui por enquanto)
-        // auto goldMat = std::make_shared<Material>(MaterialLibrary::CreateGold());
-
-        auto floorMat = std::make_shared<Material>(MaterialLibrary::CreatePhong(glm::vec3(0.1f, 0.1f, 0.1f)));
-
-        // 2. Criar Entidade NAVE
-        playerShipEntity = activeScene->CreateEntity("PlayerShip");
-        
-        // Adiciona componente de renderização (carrega o modelo)
+        modelEntity = activeScene->CreateEntity("PlayerShip");
         auto model = std::make_shared<Model>("models/DamagedHelmet/DamagedHelmet.glb");
-        if (model->GetMeshCount() > 0) {
-            availableMaterials.push_back(model->GetMesh(0).GetMaterial());
-        }
 
-        auto renderComp = playerShipEntity->AddComponent<MeshRenderer>(model);
+        auto modelMat = model->GetMesh(0).GetMaterial();
+        availableMaterials.push_back(modelMat);
+
+        auto renderComp = modelEntity->AddComponent<MeshRenderer>(model);
         renderComp->SetMaterial(availableMaterials[0]);
 
         // Adiciona comportamento (Script)
-        playerShipEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 30.0f, 0.0f)); // Gira 30 graus/s no Y
-        playerShipEntity->transform.Scale = glm::vec3(0.5f);
-        playerShipEntity->transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+        modelEntity->AddComponent<RotatorScript>(glm::vec3(0.0f, 0.0f, 30.0f)); // Gira 30 graus/s no Y
+        modelEntity->transform.Scale = glm::vec3(1.0f);
+        modelEntity->transform.Position = glm::vec3(0.0f, 0.5f, 0.0f);
+        modelEntity->transform.Rotation = glm::vec3(90.0f, 0.0f, 0.0f); // Aponta para frente
 
         // 3. Criar Entidade CHÃO
         auto floorEntity = activeScene->CreateEntity("Floor");
         auto floorMesh = std::make_shared<Mesh>(ModelFactory::CreatePlaneMesh(1.0f));
         auto floorRender = floorEntity->AddComponent<SimpleMeshRenderer>(floorMesh);
+        auto floorMat = std::make_shared<Material>(MaterialLibrary::CreateCopper());
         floorRender->SetMaterial(floorMat);
-        floorEntity->transform.Scale = glm::vec3(20.0f);
+        floorEntity->transform.Scale = glm::vec3(10.0f);
         floorEntity->transform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
         
         // auto sphereEntity = activeScene->CreateEntity("Sphere");
@@ -190,7 +183,7 @@ private:
 
         // --- ILUMINAÇÃO ---
 
-        envMap.LoadFromHDR("models/golden_gate_hills_8k.hdr");
+        envMap.LoadFromHDR("models/golden_gate_hills_4k.hdr");
 
         if (envMap.envCubemap) {
             renderer.SetIBLMaps(
@@ -211,8 +204,10 @@ private:
 
         // 2. LUZ VERMELHA (Point Light 1)
         auto redLight = activeScene->CreateEntity("RedLight");
-        // redLight->AddComponent<PointLightComponent>(glm::vec3(1.0f, 0.0f, 0.0f), 30.0f, 10.0f);
+        redLight->AddComponent<PointLightComponent>(glm::vec3(1.0f, 0.0f, 0.0f), 30.0f, 10.0f);
         redLight->transform.Position = glm::vec3(-2.0f, 1.0f, -2.0f);
+        redLight->AddComponent<RotatorScript>(glm::vec3(0, 50, 0)); // Gira em torno do eixo Y
+        redLight->AddComponent<FloaterScript>(1.0f, 2.0f); // Luz subindo e descendo
         
         // Pequeno cubo para visualizar onde a luz está (Debug)
         // auto debugMeshRed = std::make_shared<Mesh>(ModelFactory::CreateSphere(0.1f));
@@ -221,14 +216,9 @@ private:
 
         // 3. LUZ AZUL (Point Light 2) - Animada!
         auto blueLight = activeScene->CreateEntity("BlueLight");
-        // blueLight->AddComponent<PointLightComponent>(glm::vec3(0.0f, 0.5f, 1.0f), 30.0f, 10.0f);
+        blueLight->AddComponent<PointLightComponent>(glm::vec3(0.0f, 0.5f, 1.0f), 30.0f, 10.0f);
         blueLight->transform.Position = glm::vec3(2.0f, 1.0f, 0.0f);
-        
-        // Script para fazer a luz orbitar
         blueLight->AddComponent<RotatorScript>(glm::vec3(0, 50, 0)); // Isso gira o transform
-        // Precisaríamos de um script "Orbiter" real para mover a posição, 
-        // mas se a luz for filha de um objeto rotativo funcionaria. 
-        // Como não temos hierarquia pai-filho ainda, vamos deixar estática ou usar Floater.
         blueLight->AddComponent<FloaterScript>(1.0f, 2.0f); // Luz subindo e descendo
 
         // Inicia todos os scripts
@@ -244,8 +234,8 @@ private:
             mKeyPressed = true;
             currentMaterialIndex = (currentMaterialIndex + 1) % availableMaterials.size();
 
-            if(playerShipEntity) {
-                auto rendererComponent = playerShipEntity->GetComponent<MeshRenderer>();
+            if(modelEntity) {
+                auto rendererComponent = modelEntity->GetComponent<MeshRenderer>();
                 if (rendererComponent) {
                     rendererComponent->SetMaterial(availableMaterials[currentMaterialIndex]);
                     std::cout << "[MATERIAL] Trocado para: " 

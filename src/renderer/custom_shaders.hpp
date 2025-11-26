@@ -340,31 +340,31 @@ vec3 CalcPBRLight(vec3 L, vec3 V, vec3 N, vec3 F0, vec3 albedo, float metallic, 
 
 void main() {
     // 1. Material Properties
+    
+    vec2 uv = TexCoords;
     vec3 albedo = material.albedo;
+
     if (hasTextureDiffuse) {
-        vec4 albedoTex = texture(texture_diffuse1, TexCoords / 0.5);
+        vec4 albedoTex = texture(texture_diffuse1, uv / 0.5);
         albedo = pow(albedoTex.rgb, vec3(2.2)); // Convert to linear space
     }
-    // FragColor = vec4(albedo, 1.0);
-    FragColor = vec4(vec3(TexCoords.x, TexCoords.y, 0.0f), 1.0);
-    return;
 
     float metallic = material.metallic;
-    if (hasTextureMetallic) metallic = texture(texture_metallic1, TexCoords).r;
+    if (hasTextureMetallic) metallic = texture(texture_metallic1, uv).r;
     
     float roughness = material.roughness;
-    if (hasTextureRoughness) roughness = texture(texture_roughness1, TexCoords).r;
+    if (hasTextureRoughness) roughness = texture(texture_roughness1, uv).r;
     
     // Clamp roughness to prevent artifacts
     roughness = clamp(roughness, 0.04, 1.0);
 
     float ao = material.ao;
-    if (hasTextureAO) ao = texture(texture_ao1, TexCoords).r;
+    if (hasTextureAO) ao = texture(texture_ao1, uv).r;
 
     // 2. Normal / Geometry Data
     vec3 N = normalize(Normal);
     if (hasTextureNormal) {
-        vec3 normalMap = texture(texture_normal1, TexCoords).rgb;
+        vec3 normalMap = texture(texture_normal1, uv).rgb;
         normalMap = normalMap * 2.0 - 1.0;
         N = normalize(TBN * normalMap);
     }
@@ -441,7 +441,7 @@ void main() {
     // --- EMISSION ---
     vec3 emission = vec3(0.0);
     if (hasTextureEmission) {
-        emission = texture(texture_emission1, TexCoords).rgb;
+        emission = texture(texture_emission1, uv).rgb;
         emission = pow(emission, vec3(2.2)); // Convert to linear space
     } else {
         emission = material.emission;

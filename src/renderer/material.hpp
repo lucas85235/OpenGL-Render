@@ -108,29 +108,19 @@ public:
 
     // Enviar propriedades para o shader
     void SendProperties(unsigned int shaderProgram) const {
-        glUniform3fv(glGetUniformLocation(shaderProgram, "material.albedo"), 
-                     1, &properties.albedo[0]);
-        glUniform1f(glGetUniformLocation(shaderProgram, "material.metallic"), 
-                    properties.metallic);
-        glUniform1f(glGetUniformLocation(shaderProgram, "material.roughness"), 
-                    properties.roughness);
-        glUniform1f(glGetUniformLocation(shaderProgram, "material.ao"), 
-                    properties.ao);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "material.albedo"), 1, &properties.albedo[0]);
+        glUniform1f(glGetUniformLocation(shaderProgram, "material.metallic"), properties.metallic);
+        glUniform1f(glGetUniformLocation(shaderProgram, "material.roughness"), properties.roughness);
+        glUniform1f(glGetUniformLocation(shaderProgram, "material.ao"), properties.ao);
         
-        glUniform3fv(glGetUniformLocation(shaderProgram, "material.emission"), 
-                     1, &properties.emission[0]);
-        glUniform1f(glGetUniformLocation(shaderProgram, "material.emissionStrength"), 
-                    properties.emissionStrength);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "material.emission"), 1, &properties.emission[0]);
+        glUniform1f(glGetUniformLocation(shaderProgram, "material.emissionStrength"), properties.emissionStrength);
         
         // Phong properties
-        glUniform3fv(glGetUniformLocation(shaderProgram, "material.ambient"), 
-                     1, &properties.ambient[0]);
-        glUniform3fv(glGetUniformLocation(shaderProgram, "material.diffuse"), 
-                     1, &properties.diffuse[0]);
-        glUniform3fv(glGetUniformLocation(shaderProgram, "material.specular"), 
-                     1, &properties.specular[0]);
-        glUniform1f(glGetUniformLocation(shaderProgram, "material.shininess"), 
-                    properties.shininess);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "material.ambient"), 1, &properties.ambient[0]);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "material.diffuse"), 1, &properties.diffuse[0]);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "material.specular"), 1, &properties.specular[0]);
+        glUniform1f(glGetUniformLocation(shaderProgram, "material.shininess"), properties.shininess);
     }
 
     // Getters e Setters

@@ -35,6 +35,7 @@ private:
             aiProcess_EmbedTextures |
             aiProcess_OptimizeMeshes |
             aiProcess_OptimizeGraph |
+            aiProcess_FlipUVs |
             aiProcess_GenUVCoords |           // FIX: Gerar UVs se não existirem
             aiProcess_TransformUVCoords       // FIX: Aplicar transformações de UV do material
         );
@@ -81,7 +82,7 @@ private:
 
             // UV
             if(mesh->mTextureCoords[0]) {
-                vertex.TexCoords = glm::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
+                vertex.TexCoords = glm::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y) / 2.0f;
             }
             else {
                 vertex.TexCoords = glm::vec2(0.0f, 0.0f);
