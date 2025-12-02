@@ -7,7 +7,10 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+#ifndef STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#endif
 
 #include "mesh.hpp"
 #include "material.hpp"

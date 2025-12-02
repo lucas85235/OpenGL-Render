@@ -30,11 +30,11 @@ public:
             return false;
         }
 
-        // Criar framebuffer
+        // Create Framebuffer
         glGenFramebuffers(1, &framebuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 
-        // Criar textura para o framebuffer
+        // Create texturo to the framebuffer
         glGenTextures(1, &textureColorbuffer);
         glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
@@ -42,29 +42,29 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorbuffer, 0);
         
-        // Criar renderbuffer para depth e stencil
+        // Create renderbuffer to depth and stencil
         glGenRenderbuffers(1, &rbo);
         glBindRenderbuffer(GL_RENDERBUFFER, rbo);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
 
-        // Verificar se o framebuffer está completo
+        // Check if framebuffer is complete
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             std::cerr << "Erro: Framebuffer não está completo!" << std::endl;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             return false;
         }
-        
+
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         initialized = true;
         
-        std::cout << "Framebuffer inicializado com sucesso (" << width << "x" << height << ")" << std::endl;
+        std::cout << "Framebuffer initialized successfully (" << width << "x" << height << ")" << std::endl;
         return true;
     }
 
     void Bind() {
         if (!initialized) {
-            std::cerr << "Erro: Tentando usar framebuffer não inicializado!" << std::endl;
+            std::cerr << "Error: Trying to use uninitialized framebuffer!" << std::endl;
             return;
         }
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
@@ -82,15 +82,15 @@ public:
         width = w;
         height = h;
         
-        // Redimensionar textura
+        // Resize texture
         glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
         
-        // Redimensionar renderbuffer
+        // Resize renderbuffer
         glBindRenderbuffer(GL_RENDERBUFFER, rbo);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
         
-        std::cout << "Framebuffer redimensionado para " << width << "x" << height << std::endl;
+        std::cout << "Framebuffer resized to " << width << "x" << height << std::endl;
     }
 
     unsigned int GetTexture() const {
@@ -107,7 +107,7 @@ public:
             glDeleteTextures(1, &textureColorbuffer);
             glDeleteRenderbuffers(1, &rbo);
             initialized = false;
-            std::cout << "Framebuffer liberado" << std::endl;
+            std::cout << "Framebuffer cleaned up successfully" << std::endl;
         }
     }
 

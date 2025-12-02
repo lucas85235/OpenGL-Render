@@ -34,14 +34,12 @@ public:
     Material(const std::string& materialName = "Default") 
         : name(materialName) {}
 
-    // Adicionar textura
     void AddTexture(std::shared_ptr<Texture> texture) {
         if (texture && texture->IsLoaded()) {
             textures.push_back(texture);
         }
     }
 
-    // Carregar textura diretamente
     bool LoadTexture(const std::string& path, TextureType type,
                      const TextureParams& params = TextureParams()) {
         auto& manager = TextureManager::GetInstance();
@@ -54,7 +52,6 @@ public:
         return false;
     }
 
-    // Aplicar material ao shader
     void Apply(unsigned int shaderProgram) const {
         int diffuseNr = 1;
         int specularNr = 1;
@@ -102,11 +99,9 @@ public:
             glUniform1i(glGetUniformLocation(shaderProgram, uniformName.c_str()), i);
         }
 
-        // Enviar propriedades do material
         SendProperties(shaderProgram);
     }
 
-    // Enviar propriedades para o shader
     void SendProperties(unsigned int shaderProgram) const {
         glUniform3fv(glGetUniformLocation(shaderProgram, "material.albedo"), 1, &properties.albedo[0]);
         glUniform1f(glGetUniformLocation(shaderProgram, "material.metallic"), properties.metallic);
@@ -159,7 +154,7 @@ public:
     }
 };
 
-// Biblioteca de materiais pré-definidos
+// Library of predefined materials
 class MaterialLibrary {
 public:
     static Material CreateGold() {

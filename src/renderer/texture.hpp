@@ -77,15 +77,15 @@ public:
         unsigned char* data = stbi_load(filepath.c_str(), &width, &height, &channels, 0);
         
         if (!data) {
-            std::cerr << "Falha ao carregar textura: " << filepath << std::endl;
-            std::cerr << "Erro: " << stbi_failure_reason() << std::endl;
+            std::cerr << "Failed to load texture: " << filepath << std::endl;
+            std::cerr << "Error: " << stbi_failure_reason() << std::endl;
             return false;
         }
 
         glGenTextures(1, &id);
         glBindTexture(GL_TEXTURE_2D, id);
 
-        // Determinar formato
+        // Define format
         GLenum format = GL_RGB;
         GLenum internalFormat = GL_RGB;
         
@@ -94,13 +94,13 @@ public:
             internalFormat = GL_RED;
         } else if (channels == 3) {
             format = GL_RGB;
-            internalFormat = GL_SRGB; // Para texturas de cor (diffuse)
+            internalFormat = GL_SRGB; // Para texturas de cor (difusas)
         } else if (channels == 4) {
             format = GL_RGBA;
             internalFormat = GL_SRGB_ALPHA;
         }
 
-        // Para texturas que não são de cor (normal, roughness, etc), usar formato linear
+        // For textures that are not colored (normal, roughness, etc.), use a linear format.
         if (type != TextureType::DIFFUSE && type != TextureType::EMISSION) {
             if (channels == 3) internalFormat = GL_RGB;
             if (channels == 4) internalFormat = GL_RGBA;
@@ -113,20 +113,20 @@ public:
             glGenerateMipmap(GL_TEXTURE_2D);
         }
 
-        // Configurar parâmetros de wrapping
+        // Configure wrapping parameters
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)params.wrapS);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)params.wrapT);
 
-        // Configurar parâmetros de filtering
+        // Configure filtering parameters
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)params.minFilter);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)params.magFilter);
 
         stbi_image_free(data);
         loaded = true;
 
-        std::cout << "Textura carregada: " << filepath 
+        std::cout << "Texture loaded: " << filepath 
                   << " (" << width << "x" << height << ", " 
-                  << channels << " canais)" << std::endl;
+                  << channels << " channels)" << std::endl;
 
         return true;
     }
@@ -140,7 +140,7 @@ public:
                                                           &width, &height, &channels, 0);
         
         if (!imageData) {
-            std::cerr << "Falha ao carregar textura da memória" << std::endl;
+            std::cerr << "Failed to load texture from memory." << std::endl;
             return false;
         }
 
@@ -169,7 +169,7 @@ public:
         stbi_image_free(imageData);
         loaded = true;
 
-        std::cout << "Textura carregada da memória: " 
+        std::cout << "Texture laden with memory: " 
                   << width << "x" << height << std::endl;
 
         return true;
@@ -185,7 +185,7 @@ public:
         float* data = stbi_loadf(filepath.c_str(), &width, &height, &channels, 0);
         
         if (!data) {
-            std::cerr << "Falha ao carregar HDR: " << filepath << std::endl;
+            std::cerr << "Failed to load HDR: " << filepath << std::endl;
             return false;
         }
 
@@ -203,7 +203,7 @@ public:
         stbi_image_free(data);
         loaded = true;
         
-        std::cout << "Textura HDR carregada: " << filepath << std::endl;
+        std::cout << "HDR texture loaded: " << filepath << std::endl;
         return true;
     }
 
@@ -282,7 +282,7 @@ public:
         // Verificar cache
         auto it = cache.find(path);
         if (it != cache.end()) {
-            std::cout << "Textura encontrada no cache: " << path << std::endl;
+            std::cout << "Texture found in the cache: " << path << std::endl;
             return it->second;
         }
 
@@ -298,7 +298,7 @@ public:
 
     void ClearCache() {
         cache.clear();
-        std::cout << "Cache de texturas limpo" << std::endl;
+        std::cout << "Cleared texture cache" << std::endl;
     }
 
     size_t GetCacheSize() const {
@@ -306,8 +306,8 @@ public:
     }
 
     void PrintCacheInfo() const {
-        std::cout << "\n=== Cache de Texturas ===" << std::endl;
-        std::cout << "Total: " << cache.size() << " texturas" << std::endl;
+        std::cout << "\n=== Texture Cache ===" << std::endl;
+        std::cout << "Total: " << cache.size() << " textures" << std::endl;
         for (const auto& pair : cache) {
             std::cout << "- " << pair.first << std::endl;
         }
