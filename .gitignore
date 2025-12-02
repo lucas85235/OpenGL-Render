@@ -1,1 +1,3 @@
-framebuffer
+/build
+/.cache
+model_viewer
