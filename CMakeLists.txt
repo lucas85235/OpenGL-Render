@@ -52,6 +52,12 @@ if(NOT EXISTS ${STB_IMAGE_PATH})
     )
 endif()
 
+# Copiar Shaders para a pasta de build
+file(COPY ${CMAKE_SOURCE_DIR}/src/shaders DESTINATION ${CMAKE_BINARY_DIR})
+
+# (Opcional) Copiar Models também se ainda não estiver fazendo
+file(COPY ${CMAKE_SOURCE_DIR}/models DESTINATION ${CMAKE_BINARY_DIR})
+
 # ==========================================
 # Definição do Executável
 # ==========================================
@@ -91,3 +97,9 @@ add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
 )
 
 message(STATUS "Configuração concluída. Pronto para compilar: ${EXECUTABLE_NAME}")
+
+# Define uma macro ROOT_DIR contendo o caminho absoluto do projeto
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
+
+# Garante que usamos C++17 para ter acesso ao std::filesystem
+target_compile_features(${EXECUTABLE_NAME} PRIVATE cxx_std_17)

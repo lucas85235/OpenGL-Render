@@ -6,9 +6,9 @@
 #include <iostream>
 
 #include "window.hpp"
+#include "filesystem.hpp"
 #include "../renderer/renderer.hpp"
 #include "../renderer/framebuffer.hpp"
-#include "../renderer/custom_shaders.hpp"
 #include "../renderer/pbr_utils.hpp"
 #include "../renderer/model_factory.hpp"
 #include "../scene/scene.hpp"
@@ -79,16 +79,23 @@ private:
 
         // 2. Compilar Shaders
         pbrShader = std::make_unique<Shader>();
-        if (!pbrShader->CompileFromSource(CustomShaders::AdvancedVertexShader, 
-                                          CustomShaders::CustomMaterialFragmentShader)) return false;
+
+        if (!pbrShader->CompileFromFile(
+            FS::GetPath("shaders/pbr.vert"), 
+            FS::GetPath("shaders/pbr.frag")
+        )) return false;
 
         screenShader = std::make_unique<Shader>();
-        if (!screenShader->CompileFromSource(ShaderSource::ScreenVertexShader, 
-                                             ShaderSource::ScreenFragmentShader)) return false;
+        if (!screenShader->CompileFromFile(
+            FS::GetPath("shaders/screen.vert"), 
+            FS::GetPath("shaders/screen.frag")
+        )) return false;
 
         skyboxShader = std::make_unique<Shader>();
-        if (!skyboxShader->CompileFromSource(CustomShaders::SkyboxVertexShader, 
-                                             CustomShaders::SkyboxFragmentShader)) return false;
+        if (!skyboxShader->CompileFromFile(
+            FS::GetPath("shaders/skybox.vert"), 
+            FS::GetPath("shaders/skybox.frag")
+        )) return false;
 
         // 3. Setup Renderer
         renderer.Init(pbrShader.get(), skyboxShader.get());

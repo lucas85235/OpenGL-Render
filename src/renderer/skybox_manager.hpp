@@ -4,7 +4,6 @@
 #include <GL/glew.h>
 #include <memory>
 #include "mesh.hpp"
-#include "model_factory.hpp"
 
 /**
  * @brief Gerenciador único para geometria do Skybox

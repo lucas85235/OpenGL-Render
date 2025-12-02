@@ -5,7 +5,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <vector>
 #include <iostream>
 #include <cmath>
 #include <algorithm>
@@ -13,148 +12,9 @@
 #include "shader.hpp"
 #include "texture.hpp"
 #include "skybox_manager.hpp"
-#include "custom_shaders.hpp" // Ensure access to Prefilter/Irradiance shader sources
+#include "../core/filesystem.hpp"
 
 namespace PBRUtils {
-
-// ----------------------------------------------------------------------------
-// Shaders for Equirectangular to Cubemap Conversion
-// ----------------------------------------------------------------------------
-
-const char* EquirectToCubeVertex = R"(
-#version 330 core
-layout (location = 0) in vec3 aPos;
-out vec3 localPos;
-uniform mat4 projection;
-uniform mat4 view;
-void main() {
-    localPos = aPos;  
-    gl_Position = projection * view * vec4(localPos, 1.0);
-}
-)";
-
-const char* EquirectToCubeFragment = R"(
-#version 330 core
-out vec4 FragColor;
-in vec3 localPos;
-uniform sampler2D equirectangularMap;
-const vec2 invAtan = vec2(0.1591, 0.3183);
-
-vec2 SampleSphericalMap(vec3 v) {
-    vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
-    uv *= invAtan;
-    uv += 0.5;
-    return uv;
-}
-
-void main() {		
-    vec2 uv = SampleSphericalMap(normalize(localPos));
-    vec3 color = texture(equirectangularMap, uv).rgb;
-    FragColor = vec4(color, 1.0);
-}
-)";
-
-// ----------------------------------------------------------------------------
-// Shaders for BRDF LUT Generation
-// ----------------------------------------------------------------------------
-
-const char* BrdfVertexShader = R"(
-#version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec2 aTexCoords;
-out vec2 TexCoords;
-void main() {
-    TexCoords = aTexCoords;
-    gl_Position = vec4(aPos, 1.0);
-}
-)";
-
-const char* BrdfFragmentShader = R"(
-#version 330 core
-out vec2 FragColor;
-in vec2 TexCoords;
-const float PI = 3.14159265359;
-
-float RadicalInverse_VdC(uint bits) {
-    bits = (bits << 16u) | (bits >> 16u);
-    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-    return float(bits) * 2.3283064365386963e-10;
-}
-
-vec2 Hammersley(uint i, uint N) {
-    return vec2(float(i)/float(N), RadicalInverse_VdC(i));
-}
-
-vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
-    float a = roughness*roughness;
-    float phi = 2.0 * PI * Xi.x;
-    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
-    float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
-    
-    vec3 H;
-    H.x = cos(phi) * sinTheta;
-    H.y = sin(phi) * sinTheta;
-    H.z = cosTheta;
-    
-    vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-    vec3 tangent = normalize(cross(up, N));
-    vec3 bitangent = cross(N, tangent);
-    
-    vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
-    return normalize(sampleVec);
-}
-
-float GeometrySchlickGGX(float NdotV, float roughness) {
-    float a = roughness;
-    float k = (a * a) / 2.0;
-    float nom   = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-    return nom / denom;
-}
-
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
-    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
-    return ggx1 * ggx2;
-}
-
-vec2 IntegrateBRDF(float NdotV, float roughness) {
-    vec3 V;
-    V.x = sqrt(1.0 - NdotV*NdotV);
-    V.y = 0.0;
-    V.z = NdotV;
-    float A = 0.0;
-    float B = 0.0;
-    vec3 N = vec3(0.0, 0.0, 1.0);
-    const uint SAMPLE_COUNT = 1024u;
-    for(uint i = 0u; i < SAMPLE_COUNT; ++i) {
-        vec2 Xi = Hammersley(i, SAMPLE_COUNT);
-        vec3 H  = ImportanceSampleGGX(Xi, N, roughness);
-        vec3 L  = normalize(2.0 * dot(V, H) * H - V);
-        float NdotL = max(L.z, 0.0);
-        float NdotH = max(H.z, 0.0);
-        float VdotH = max(dot(V, H), 0.0);
-        if(NdotL > 0.0) {
-            float G = GeometrySmith(N, V, L, roughness);
-            float G_Vis = (G * VdotH) / (NdotH * NdotV);
-            float Fc = pow(1.0 - VdotH, 5.0);
-            A += (1.0 - Fc) * G_Vis;
-            B += Fc * G_Vis;
-        }
-    }
-    return vec2(A / float(SAMPLE_COUNT), B / float(SAMPLE_COUNT));
-}
-
-void main() {
-    vec2 integratedBRDF = IntegrateBRDF(TexCoords.x, TexCoords.y);
-    FragColor = integratedBRDF;
-}
-)";
 
 /**
  * @brief Manages PBR IBL (Image Based Lighting) Map Generation.
@@ -169,6 +29,13 @@ private:
     const int CUBEMAP_SIZE = 1024;
     const int IRRADIANCE_SIZE = 32;
     const int PREFILTER_SIZE = 128;
+
+    const std::string EquirectToCubeVertex = "shaders/equirect.vert";
+    const std::string EquirectToCubeFragment = "shaders/equirect.frag";
+    const std::string IrradianceConvolutionFragment = "shaders/irradiance.frag";
+    const std::string PrefilterFragment = "shaders/prefilter.frag";
+    const std::string BrdfVertexShader = "shaders/brdf.frag";
+    const std::string BrdfFragmentShader = "shaders/brdf.frag";
 
     SkyboxManager skyboxManager;
 
@@ -197,7 +64,7 @@ public:
         if (prefilterMap) glDeleteTextures(1, &prefilterMap);
         if (brdfLUTTexture) glDeleteTextures(1, &brdfLUTTexture);
     }
-    
+
     /**
      * @brief Loads HDR image and generates all necessary IBL maps.
      */
@@ -239,7 +106,9 @@ public:
         
         // Convert HDR (Equirectangular) to Cubemap
         Shader convertShader;
-        convertShader.CompileFromSource(EquirectToCubeVertex, EquirectToCubeFragment);
+        convertShader.CompileFromFile(
+            FS::GetPath(EquirectToCubeVertex), 
+            FS::GetPath(EquirectToCubeFragment));
         convertShader.Use();
         convertShader.SetInt("equirectangularMap", 0);
         
@@ -316,7 +185,9 @@ public:
 
         // Assuming IrradianceConvolutionFragment is available in CustomShaders
         Shader irradianceShader;
-        irradianceShader.CompileFromSource(EquirectToCubeVertex, CustomShaders::IrradianceConvolutionFragment);
+        irradianceShader.CompileFromFile(
+            FS::GetPath(EquirectToCubeVertex), 
+            FS::GetPath(IrradianceConvolutionFragment));
 
         glm::mat4 captureProjection;
         glm::mat4 captureViews[6];
@@ -378,7 +249,9 @@ public:
         glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
 
         Shader prefilterShader;
-        prefilterShader.CompileFromSource(EquirectToCubeVertex, CustomShaders::PrefilterFragment);
+        prefilterShader.CompileFromFile(
+            FS::GetPath(EquirectToCubeVertex), 
+            FS::GetPath(PrefilterFragment));
 
         glm::mat4 captureProjection;
         glm::mat4 captureViews[6];
@@ -446,7 +319,9 @@ public:
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, brdfLUTTexture, 0);
 
         Shader brdfShader;
-        brdfShader.CompileFromSource(BrdfVertexShader, BrdfFragmentShader);
+        brdfShader.CompileFromFile(
+            FS::GetPath(BrdfVertexShader), 
+            FS::GetPath(BrdfFragmentShader));
         brdfShader.Use();
 
         glViewport(0, 0, 512, 512);
