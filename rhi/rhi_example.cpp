@@ -1,5 +1,6 @@
 #include "opengl_device.hpp"
 #include "src/core/window.hpp"
+#include <glm/glm.hpp>
 #include <memory>
 
 namespace RHI {
@@ -32,6 +33,42 @@ std::unique_ptr<IDevice> DeviceFactory::Create(API api) {
 
 using namespace RHI;
 
+struct Vertex {
+    glm::vec3 position;
+    glm::vec3 color;
+};
+
+std::vector<Vertex> triangleVertices = {
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}}, // Vermelho
+    {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}}, // Verde
+    {{ 0.0f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}}  // Azul
+};
+
+std::vector<uint32_t> triangleIndices = {0, 1, 2};
+
+const char* vertexShaderSource = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aColor;
+
+out vec3 color;
+
+void main() {
+    gl_Position = vec4(aPos, 1.0);
+    color = aColor;
+}
+)";
+
+const char* fragmentShaderSource = R"(
+#version 330 core
+in vec3 color;
+out vec4 FragColor;
+
+void main() {
+    FragColor = vec4(color, 1.0);
+}
+)";
+
 class App {
 private:
     std::unique_ptr<Window> window;
@@ -47,8 +84,6 @@ private:
             return false;
 
         window->SetResizeCallback([this](int w, int h) {
-            // device->SetViewport({0, 0, window->GetWidth(), window->GetHeight(), 0.0f, 1.0f});
-            // if (this->fb) this->fb->Resize(w, h);
             device->ResizeFramebuffer(*framebuffer, window->GetWidth(), window->GetHeight());
         });
 
@@ -82,18 +117,78 @@ public:
     void Run() {
         if (!Init()) return;
 
+        // Create Buffers
+        BufferDescriptor vbDesc;
+        vbDesc.type = BufferType::Vertex;
+        vbDesc.usage = BufferUsage::Static;
+        vbDesc.size = triangleVertices.size() * sizeof(Vertex);
+        vbDesc.data = triangleVertices.data();
+        BufferHandle vertexBuffer = device->CreateBuffer(vbDesc);
+
+        BufferDescriptor ibDesc;
+        ibDesc.type = BufferType::Index;
+        ibDesc.usage = BufferUsage::Static;
+        ibDesc.size = triangleIndices.size() * sizeof(uint32_t);
+        ibDesc.data = triangleIndices.data();
+        BufferHandle indexBuffer = device->CreateBuffer(ibDesc);
+
+        // Create Vertex Layout
+        VertexLayout layout;
+        layout.stride = sizeof(Vertex);
+        layout.attributes = {
+            {0, VertexAttributeType::Float3, offsetof(Vertex, position)},  // Position
+            {1, VertexAttributeType::Float3, offsetof(Vertex, color)}      // Color
+        };
+
+        // Create Vertex Array
+        VertexArrayHandle vao = device->CreateVertexArray(vertexBuffer, indexBuffer, layout);
+        std::cout << "VAO criado!" << std::endl;
+
+        // Create Shader
+        std::vector<ShaderDescriptor> shaderStages = {
+            {ShaderStage::Vertex, vertexShaderSource},
+            {ShaderStage::Fragment, fragmentShaderSource}
+        };
+
+        ShaderHandle shader = device->CreateShader(shaderStages);
+        if (!IsValid(shader)) {
+            std::cerr << "Falha ao criar shader!" << std::endl;
+            return;
+        }
+
+        // Create Pipeline
+        PipelineDescriptor pipelineDesc;
+        pipelineDesc.rasterizer.cullMode = CullMode::Back;
+        pipelineDesc.rasterizer.frontFace = FrontFace::CounterClockwise;
+        pipelineDesc.depthStencil.depthTestEnable = true;
+        pipelineDesc.depthStencil.depthWriteEnable = true;
+        pipelineDesc.blend.blendEnable = false;
+        pipelineDesc.topology = PrimitiveTopology::TriangleList;
+        PipelineHandle pipeline = device->CreatePipeline(pipelineDesc, shader, layout);
+
+        // Initialize Framebuffer
         FramebufferDescriptor fbDesc;
         fbDesc.width = window->GetWidth();
         fbDesc.height = window->GetHeight();
         fbDesc.colorFormats = {TextureFormat::RGBA8};
         fbDesc.hasDepth = true;
-
         framebuffer = std::make_unique<FramebufferHandle>(device->CreateFramebuffer(fbDesc));
 
+        // Main Loop
         while (!window->ShouldClose()) {
-            device->SetClearColor({1.0f, 0.1f, 0.15f, 1.0f});
+            device->SetClearColor({0.1f, 0.1f, 0.15f, 1.0f});
             device->Clear(true, true, false);
             device->BindFramebuffer(*framebuffer);
+
+            // Bind pipeline and VAO
+            device->BindPipeline(pipeline);
+            device->BindVertexArray(vao);
+
+            // Draw
+            DrawIndexedCommand drawCmd;
+            drawCmd.indexCount = triangleIndices.size();
+            drawCmd.instanceCount = 1;
+            device->DrawIndexed(drawCmd);
 
             // Swap buffers and poll events
             window->OnUpdate();
