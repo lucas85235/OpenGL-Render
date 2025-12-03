@@ -1,4 +1,4 @@
-#include "opengl_device.hpp"
+#include "src/rhi/opengl_device.hpp"
 #include "src/core/window.hpp"
 #include <glm/glm.hpp>
 #include <memory>
@@ -142,7 +142,6 @@ public:
 
         // Create Vertex Array
         VertexArrayHandle vao = device->CreateVertexArray(vertexBuffer, indexBuffer, layout);
-        std::cout << "VAO criado!" << std::endl;
 
         // Create Shader
         std::vector<ShaderDescriptor> shaderStages = {
