@@ -1,5 +1,6 @@
 #include "src/core/window.hpp"
 #include "src/rhi/opengl_device.hpp"
+#include "src/rhi/vulkan_device.hpp"
 #include <glm/glm.hpp>
 #include <memory>
 
@@ -11,9 +12,7 @@ std::unique_ptr<IDevice> DeviceFactory::Create(API api) {
     return std::make_unique<OpenGLDevice>();
 
   case API::Vulkan:
-    // return std::make_unique<VulkanDevice>();
-    std::cerr << "[RHI] Vulkan não implementado ainda!" << std::endl;
-    return nullptr;
+    return std::make_unique<VulkanDevice>();
 
   case API::DirectX12:
     // return std::make_unique<D3D12Device>();
@@ -80,16 +79,34 @@ private:
   int height;
 
   bool Init() {
-    if (!window->Init())
+    // Detect which API to use
+    bool useVulkan = true; // Change to false for OpenGL
+
+    // Initialize window (no GL context for Vulkan)
+    if (!window->Init(!useVulkan))
       return false;
 
     window->SetResizeCallback([this](int w, int h) {
-      device->ResizeFramebuffer(*framebuffer, window->GetWidth(),
-                                window->GetHeight());
+      if (framebuffer) {
+        device->ResizeFramebuffer(*framebuffer, window->GetWidth(),
+                                  window->GetHeight());
+      }
     });
 
     // Create Graphics Context
-    device = DeviceFactory::Create(API::OpenGL);
+    if (useVulkan) {
+      device = DeviceFactory::Create(API::Vulkan);
+      if (device) {
+        // Vulkan needs the window handle for surface creation
+        auto *vkDevice = dynamic_cast<VulkanDevice *>(device.get());
+        if (vkDevice) {
+          vkDevice->SetWindow(window->GetNativeWindow());
+        }
+      }
+    } else {
+      device = DeviceFactory::Create(API::OpenGL);
+    }
+
     if (!device) {
       std::cerr << "Falha ao criar device!" << std::endl;
       return false;

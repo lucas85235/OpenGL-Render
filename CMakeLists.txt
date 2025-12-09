@@ -24,6 +24,9 @@ find_package(PkgConfig REQUIRED)
 # OpenGL
 find_package(OpenGL REQUIRED)
 
+# Vulkan
+find_package(Vulkan REQUIRED)
+
 # GLEW
 find_package(GLEW REQUIRED)
 
@@ -81,6 +84,7 @@ target_include_directories(${EXECUTABLE_NAME} PRIVATE
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE
     OpenGL::GL
     GLEW::GLEW
+    Vulkan::Vulkan
     glfw
     assimp
     glm::glm
