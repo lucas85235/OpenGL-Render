@@ -116,9 +116,34 @@ private:
   std::unordered_map<uint64_t, VulkanVertexArray> vertexArrays;
 
   uint64_t nextId = 1;
+
+  // Render State
   PipelineHandle currentPipeline;
   VertexArrayHandle currentVAO;
+  TextureHandle boundTextures[16];
+  SamplerHandle boundSamplers[16];
   ClearColor clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+
+  // Descriptors
+  VkDescriptorSetLayout descriptorSetLayout;
+  VkDescriptorPool descriptorPool;
+  std::vector<VkDescriptorSet> descriptorSets;
+
+  // Uniform Buffers (one per frame)
+  struct UniformBufferObject {
+    alignas(16) float model[16];
+    alignas(16) float view[16];
+    alignas(16) float proj[16];
+  };
+  std::vector<VkBuffer> uniformBuffers;
+  std::vector<VkDeviceMemory> uniformBuffersMemory;
+  std::vector<void *> uniformBuffersMapped;
+
+  void createDescriptorSetLayout();
+  void createUniformBuffers();
+  void createDescriptorPool();
+  void createDescriptorSets();
+  void updateUniformBuffer(uint32_t currentImage);
 
   bool checkValidationLayerSupport();
   std::vector<const char *> getRequiredExtensions();
@@ -144,6 +169,18 @@ private:
   VkPresentModeKHR chooseSwapPresentMode(
       const std::vector<VkPresentModeKHR> &availablePresentModes);
   VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
+
+  VkCommandBuffer beginSingleTimeCommands();
+  void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+  void transitionImageLayout(VkImage image, VkFormat format,
+                             VkImageLayout oldLayout, VkImageLayout newLayout);
+  void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width,
+                         uint32_t height);
+  void createImage(uint32_t width, uint32_t height, VkFormat format,
+                   VkImageTiling tiling, VkImageUsageFlags usage,
+                   VkMemoryPropertyFlags properties, VkImage &image,
+                   VkDeviceMemory &imageMemory);
+  VkImageView createImageView(VkImage image, VkFormat format);
 
   uint32_t findMemoryType(uint32_t typeFilter,
                           VkMemoryPropertyFlags properties);
