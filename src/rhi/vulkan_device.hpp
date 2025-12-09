@@ -71,6 +71,11 @@ struct VulkanPipeline {
   VkRenderPass renderPass;
 };
 
+struct VulkanVertexArray {
+  BufferHandle vertexBuffer;
+  BufferHandle indexBuffer;
+};
+
 class VulkanDevice : public IDevice {
 private:
   GLFWwindow *window = nullptr;
@@ -108,9 +113,11 @@ private:
   std::unordered_map<uint64_t, VulkanSampler> samplers;
   std::unordered_map<uint64_t, VulkanShader> shaders;
   std::unordered_map<uint64_t, VulkanPipeline> pipelines;
+  std::unordered_map<uint64_t, VulkanVertexArray> vertexArrays;
 
   uint64_t nextId = 1;
   PipelineHandle currentPipeline;
+  VertexArrayHandle currentVAO;
   ClearColor clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
 
   bool checkValidationLayerSupport();

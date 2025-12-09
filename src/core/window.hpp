@@ -13,17 +13,19 @@ private:
   int width;
   int height;
   std::string title;
+  bool hasGLContext = false;
 
   // Callback para notificar a Application sobre resize
   std::function<void(int, int)> resizeCallback;
 
   // Função estática para o GLFW chamar
   static void FramebufferSizeCallback(GLFWwindow *window, int w, int h) {
-    glViewport(0, 0, w, h);
-
     // Recupera o ponteiro da nossa classe Window
     Window *win = static_cast<Window *>(glfwGetWindowUserPointer(window));
     if (win) {
+      if (win->hasGLContext) {
+        glViewport(0, 0, w, h);
+      }
       win->width = w;
       win->height = h;
       // Chama a função da Application se existir
@@ -77,13 +79,16 @@ public:
         std::cerr << "Falha ao iniciar GLEW" << std::endl;
         return false;
       }
+      hasGLContext = true; // Set flag if GL context is created
     }
 
     return true;
   }
 
   void OnUpdate() {
-    glfwSwapBuffers(handle);
+    if (hasGLContext) { // Only swap buffers if a GL context exists
+      glfwSwapBuffers(handle);
+    }
     glfwPollEvents();
   }
 

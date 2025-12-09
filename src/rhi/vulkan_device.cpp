@@ -672,19 +672,87 @@ uint32_t VulkanDevice::findMemoryType(uint32_t typeFilter,
   throw std::runtime_error("[Vulkan] Failed to find suitable memory type");
 }
 
-// Stub implementations for remaining interface methods
+// Buffer implementations
 BufferHandle VulkanDevice::CreateBuffer(const BufferDescriptor &desc) {
-  // TODO: Implement
-  return BufferHandle{nextId++};
+  VulkanBuffer vkBuffer;
+  vkBuffer.size = desc.size;
+  vkBuffer.type = desc.type;
+
+  VkBufferUsageFlags usage = 0;
+  switch (desc.type) {
+  case BufferType::Vertex:
+    usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    break;
+  case BufferType::Index:
+    usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    break;
+  case BufferType::Uniform:
+    usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    break;
+  }
+
+  VkBufferCreateInfo bufferInfo{};
+  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferInfo.size = desc.size;
+  bufferInfo.usage = usage;
+  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  if (vkCreateBuffer(device, &bufferInfo, nullptr, &vkBuffer.buffer) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create buffer" << std::endl;
+    return BufferHandle{0};
+  }
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device, vkBuffer.buffer, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex = findMemoryType(
+      memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  if (vkAllocateMemory(device, &allocInfo, nullptr, &vkBuffer.memory) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to allocate buffer memory" << std::endl;
+    vkDestroyBuffer(device, vkBuffer.buffer, nullptr);
+    return BufferHandle{0};
+  }
+
+  vkBindBufferMemory(device, vkBuffer.buffer, vkBuffer.memory, 0);
+
+  if (desc.data) {
+    void *mappedData;
+    vkMapMemory(device, vkBuffer.memory, 0, desc.size, 0, &mappedData);
+    memcpy(mappedData, desc.data, desc.size);
+    vkUnmapMemory(device, vkBuffer.memory);
+  }
+
+  BufferHandle handle{nextId++};
+  buffers[handle.id] = vkBuffer;
+  return handle;
 }
 
 void VulkanDevice::UpdateBuffer(BufferHandle buffer, const void *data,
                                 uint32_t size, uint32_t offset) {
-  // TODO: Implement
+  auto it = buffers.find(buffer.id);
+  if (it == buffers.end())
+    return;
+
+  void *mappedData;
+  vkMapMemory(device, it->second.memory, offset, size, 0, &mappedData);
+  memcpy(mappedData, data, size);
+  vkUnmapMemory(device, it->second.memory);
 }
 
 void VulkanDevice::DestroyBuffer(BufferHandle buffer) {
-  // TODO: Implement
+  auto it = buffers.find(buffer.id);
+  if (it != buffers.end()) {
+    vkDestroyBuffer(device, it->second.buffer, nullptr);
+    vkFreeMemory(device, it->second.memory, nullptr);
+    buffers.erase(it);
+  }
 }
 
 TextureHandle VulkanDevice::CreateTexture(const TextureDescriptor &desc) {
@@ -714,36 +782,293 @@ void VulkanDevice::DestroySampler(SamplerHandle sampler) {
   // TODO: Implement
 }
 
+// Pre-compiled SPIR-V shaders for the triangle
+// Vertex shader: position + color passthrough
+static const uint32_t vertShaderCode[] = {
+    0x07230203, 0x00010000, 0x0008000b, 0x00000028, 0x00000000, 0x00020011,
+    0x00000001, 0x0006000b, 0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e,
+    0x00000000, 0x0003000e, 0x00000000, 0x00000001, 0x0009000f, 0x00000000,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00000009, 0x0000000b, 0x00000012,
+    0x0000001c, 0x00030003, 0x00000002, 0x000001c2, 0x00040005, 0x00000004,
+    0x6e69616d, 0x00000000, 0x00040005, 0x00000009, 0x6f6c6f63, 0x00000072,
+    0x00040005, 0x0000000b, 0x6c6f4361, 0x0000726f, 0x00060005, 0x00000010,
+    0x505f6c67, 0x65567265, 0x78657472, 0x00000000, 0x00060006, 0x00000010,
+    0x00000000, 0x505f6c67, 0x7469736f, 0x006e6f69, 0x00030005, 0x00000012,
+    0x00000000, 0x00040005, 0x0000001c, 0x736f5061, 0x00000000, 0x00040047,
+    0x00000009, 0x0000001e, 0x00000000, 0x00040047, 0x0000000b, 0x0000001e,
+    0x00000001, 0x00050048, 0x00000010, 0x00000000, 0x0000000b, 0x00000000,
+    0x00030047, 0x00000010, 0x00000002, 0x00040047, 0x0000001c, 0x0000001e,
+    0x00000000, 0x00020013, 0x00000002, 0x00030021, 0x00000003, 0x00000002,
+    0x00030016, 0x00000006, 0x00000020, 0x00040017, 0x00000007, 0x00000006,
+    0x00000003, 0x00040020, 0x00000008, 0x00000003, 0x00000007, 0x0004003b,
+    0x00000008, 0x00000009, 0x00000003, 0x00040020, 0x0000000a, 0x00000001,
+    0x00000007, 0x0004003b, 0x0000000a, 0x0000000b, 0x00000001, 0x00040017,
+    0x0000000e, 0x00000006, 0x00000004, 0x0003001e, 0x00000010, 0x0000000e,
+    0x00040020, 0x00000011, 0x00000003, 0x00000010, 0x0004003b, 0x00000011,
+    0x00000012, 0x00000003, 0x00040015, 0x00000013, 0x00000020, 0x00000001,
+    0x0004002b, 0x00000013, 0x00000014, 0x00000000, 0x00040020, 0x00000019,
+    0x00000003, 0x0000000e, 0x0004003b, 0x0000000a, 0x0000001c, 0x00000001,
+    0x0004002b, 0x00000006, 0x0000001e, 0x3f800000, 0x00050036, 0x00000002,
+    0x00000004, 0x00000000, 0x00000003, 0x000200f8, 0x00000005, 0x0004003d,
+    0x00000007, 0x0000000c, 0x0000000b, 0x0003003e, 0x00000009, 0x0000000c,
+    0x0004003d, 0x00000007, 0x0000001d, 0x0000001c, 0x00050051, 0x00000006,
+    0x0000001f, 0x0000001d, 0x00000000, 0x00050051, 0x00000006, 0x00000020,
+    0x0000001d, 0x00000001, 0x00050051, 0x00000006, 0x00000021, 0x0000001d,
+    0x00000002, 0x00070050, 0x0000000e, 0x00000022, 0x0000001f, 0x00000020,
+    0x00000021, 0x0000001e, 0x00050041, 0x00000019, 0x00000023, 0x00000012,
+    0x00000014, 0x0003003e, 0x00000023, 0x00000022, 0x000100fd, 0x00010038};
+
+// Fragment shader: output color from vertex
+static const uint32_t fragShaderCode[] = {
+    0x07230203, 0x00010000, 0x0008000b, 0x00000013, 0x00000000, 0x00020011,
+    0x00000001, 0x0006000b, 0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e,
+    0x00000000, 0x0003000e, 0x00000000, 0x00000001, 0x0007000f, 0x00000004,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00000009, 0x0000000c, 0x00030010,
+    0x00000004, 0x00000007, 0x00030003, 0x00000002, 0x000001c2, 0x00040005,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00050005, 0x00000009, 0x67617246,
+    0x6f6c6f43, 0x00000072, 0x00040005, 0x0000000c, 0x6f6c6f63, 0x00000072,
+    0x00040047, 0x00000009, 0x0000001e, 0x00000000, 0x00040047, 0x0000000c,
+    0x0000001e, 0x00000000, 0x00020013, 0x00000002, 0x00030021, 0x00000003,
+    0x00000002, 0x00030016, 0x00000006, 0x00000020, 0x00040017, 0x00000007,
+    0x00000006, 0x00000004, 0x00040020, 0x00000008, 0x00000003, 0x00000007,
+    0x0004003b, 0x00000008, 0x00000009, 0x00000003, 0x00040017, 0x0000000a,
+    0x00000006, 0x00000003, 0x00040020, 0x0000000b, 0x00000001, 0x0000000a,
+    0x0004003b, 0x0000000b, 0x0000000c, 0x00000001, 0x0004002b, 0x00000006,
+    0x0000000e, 0x3f800000, 0x00050036, 0x00000002, 0x00000004, 0x00000000,
+    0x00000003, 0x000200f8, 0x00000005, 0x0004003d, 0x0000000a, 0x0000000d,
+    0x0000000c, 0x00050051, 0x00000006, 0x0000000f, 0x0000000d, 0x00000000,
+    0x00050051, 0x00000006, 0x00000010, 0x0000000d, 0x00000001, 0x00050051,
+    0x00000006, 0x00000011, 0x0000000d, 0x00000002, 0x00070050, 0x00000007,
+    0x00000012, 0x0000000f, 0x00000010, 0x00000011, 0x0000000e, 0x0003003e,
+    0x00000009, 0x00000012, 0x000100fd, 0x00010038};
+
 ShaderHandle
 VulkanDevice::CreateShader(const std::vector<ShaderDescriptor> &stages) {
-  // TODO: Implement SPIR-V compilation
-  return ShaderHandle{nextId++};
+  VulkanShader vkShader{};
+
+  // Create shader modules from embedded SPIR-V
+  VkShaderModuleCreateInfo vertInfo{};
+  vertInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  vertInfo.codeSize = sizeof(vertShaderCode);
+  vertInfo.pCode = vertShaderCode;
+
+  if (vkCreateShaderModule(device, &vertInfo, nullptr, &vkShader.vertModule) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create vertex shader module" << std::endl;
+    return ShaderHandle{0};
+  }
+
+  VkShaderModuleCreateInfo fragInfo{};
+  fragInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  fragInfo.codeSize = sizeof(fragShaderCode);
+  fragInfo.pCode = fragShaderCode;
+
+  if (vkCreateShaderModule(device, &fragInfo, nullptr, &vkShader.fragModule) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create fragment shader module"
+              << std::endl;
+    vkDestroyShaderModule(device, vkShader.vertModule, nullptr);
+    return ShaderHandle{0};
+  }
+
+  ShaderHandle handle{nextId++};
+  shaders[handle.id] = vkShader;
+  std::cout << "[Vulkan] Shader created" << std::endl;
+  return handle;
 }
 
 void VulkanDevice::DestroyShader(ShaderHandle shader) {
-  // TODO: Implement
+  auto it = shaders.find(shader.id);
+  if (it != shaders.end()) {
+    vkDestroyShaderModule(device, it->second.vertModule, nullptr);
+    vkDestroyShaderModule(device, it->second.fragModule, nullptr);
+    shaders.erase(it);
+  }
+}
+
+VkFormat getVkFormat(VertexAttributeType type) {
+  switch (type) {
+  case VertexAttributeType::Float:
+    return VK_FORMAT_R32_SFLOAT;
+  case VertexAttributeType::Float2:
+    return VK_FORMAT_R32G32_SFLOAT;
+  case VertexAttributeType::Float3:
+    return VK_FORMAT_R32G32B32_SFLOAT;
+  case VertexAttributeType::Float4:
+    return VK_FORMAT_R32G32B32A32_SFLOAT;
+  default:
+    return VK_FORMAT_R32G32B32_SFLOAT;
+  }
 }
 
 PipelineHandle VulkanDevice::CreatePipeline(const PipelineDescriptor &desc,
                                             ShaderHandle shader,
                                             const VertexLayout &layout) {
-  // TODO: Implement
-  return PipelineHandle{nextId++};
+  auto shaderIt = shaders.find(shader.id);
+  if (shaderIt == shaders.end()) {
+    std::cerr << "[Vulkan] Invalid shader handle for pipeline" << std::endl;
+    return PipelineHandle{0};
+  }
+
+  VulkanPipeline vkPipeline{};
+
+  // Shader stages
+  VkPipelineShaderStageCreateInfo vertStageInfo{};
+  vertStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  vertStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+  vertStageInfo.module = shaderIt->second.vertModule;
+  vertStageInfo.pName = "main";
+
+  VkPipelineShaderStageCreateInfo fragStageInfo{};
+  fragStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  fragStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  fragStageInfo.module = shaderIt->second.fragModule;
+  fragStageInfo.pName = "main";
+
+  VkPipelineShaderStageCreateInfo shaderStages[] = {vertStageInfo,
+                                                    fragStageInfo};
+
+  // Vertex input
+  VkVertexInputBindingDescription bindingDesc{};
+  bindingDesc.binding = 0;
+  bindingDesc.stride = layout.stride;
+  bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  std::vector<VkVertexInputAttributeDescription> attrDescs;
+  for (const auto &attr : layout.attributes) {
+    VkVertexInputAttributeDescription attrDesc{};
+    attrDesc.binding = 0;
+    attrDesc.location = attr.location;
+    attrDesc.format = getVkFormat(attr.type);
+    attrDesc.offset = attr.offset;
+    attrDescs.push_back(attrDesc);
+  }
+
+  VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+  vertexInputInfo.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+  vertexInputInfo.vertexBindingDescriptionCount = 1;
+  vertexInputInfo.pVertexBindingDescriptions = &bindingDesc;
+  vertexInputInfo.vertexAttributeDescriptionCount =
+      static_cast<uint32_t>(attrDescs.size());
+  vertexInputInfo.pVertexAttributeDescriptions = attrDescs.data();
+
+  // Input assembly
+  VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+  inputAssembly.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+  // Dynamic state
+  std::vector<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT,
+                                               VK_DYNAMIC_STATE_SCISSOR};
+
+  VkPipelineDynamicStateCreateInfo dynamicState{};
+  dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+  dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+  dynamicState.pDynamicStates = dynamicStates.data();
+
+  // Viewport state
+  VkPipelineViewportStateCreateInfo viewportState{};
+  viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+  viewportState.viewportCount = 1;
+  viewportState.scissorCount = 1;
+
+  // Rasterizer
+  VkPipelineRasterizationStateCreateInfo rasterizer{};
+  rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+  rasterizer.depthClampEnable = VK_FALSE;
+  rasterizer.rasterizerDiscardEnable = VK_FALSE;
+  rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+  rasterizer.lineWidth = 1.0f;
+  rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+  rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+  rasterizer.depthBiasEnable = VK_FALSE;
+
+  // Multisampling
+  VkPipelineMultisampleStateCreateInfo multisampling{};
+  multisampling.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+  multisampling.sampleShadingEnable = VK_FALSE;
+  multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+  // Color blending
+  VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+  colorBlendAttachment.colorWriteMask =
+      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  colorBlendAttachment.blendEnable = VK_FALSE;
+
+  VkPipelineColorBlendStateCreateInfo colorBlending{};
+  colorBlending.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+  colorBlending.logicOpEnable = VK_FALSE;
+  colorBlending.attachmentCount = 1;
+  colorBlending.pAttachments = &colorBlendAttachment;
+
+  // Pipeline layout
+  VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+  pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+  if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr,
+                             &vkPipeline.layout) != VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create pipeline layout" << std::endl;
+    return PipelineHandle{0};
+  }
+
+  // Graphics pipeline
+  VkGraphicsPipelineCreateInfo pipelineInfo{};
+  pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+  pipelineInfo.stageCount = 2;
+  pipelineInfo.pStages = shaderStages;
+  pipelineInfo.pVertexInputState = &vertexInputInfo;
+  pipelineInfo.pInputAssemblyState = &inputAssembly;
+  pipelineInfo.pViewportState = &viewportState;
+  pipelineInfo.pRasterizationState = &rasterizer;
+  pipelineInfo.pMultisampleState = &multisampling;
+  pipelineInfo.pColorBlendState = &colorBlending;
+  pipelineInfo.pDynamicState = &dynamicState;
+  pipelineInfo.layout = vkPipeline.layout;
+  pipelineInfo.renderPass = renderPass;
+  pipelineInfo.subpass = 0;
+
+  if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo,
+                                nullptr, &vkPipeline.pipeline) != VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create graphics pipeline" << std::endl;
+    vkDestroyPipelineLayout(device, vkPipeline.layout, nullptr);
+    return PipelineHandle{0};
+  }
+
+  PipelineHandle handle{nextId++};
+  pipelines[handle.id] = vkPipeline;
+  std::cout << "[Vulkan] Graphics pipeline created" << std::endl;
+  return handle;
 }
 
 void VulkanDevice::DestroyPipeline(PipelineHandle pipeline) {
-  // TODO: Implement
+  auto it = pipelines.find(pipeline.id);
+  if (it != pipelines.end()) {
+    vkDestroyPipeline(device, it->second.pipeline, nullptr);
+    vkDestroyPipelineLayout(device, it->second.layout, nullptr);
+    pipelines.erase(it);
+  }
 }
 
 VertexArrayHandle VulkanDevice::CreateVertexArray(BufferHandle vertexBuffer,
                                                   BufferHandle indexBuffer,
                                                   const VertexLayout &layout) {
-  // VAO is OpenGL-specific, not needed in Vulkan
-  return VertexArrayHandle{nextId++};
+  VulkanVertexArray vao;
+  vao.vertexBuffer = vertexBuffer;
+  vao.indexBuffer = indexBuffer;
+
+  VertexArrayHandle handle{nextId++};
+  vertexArrays[handle.id] = vao;
+  return handle;
 }
 
 void VulkanDevice::DestroyVertexArray(VertexArrayHandle vao) {
-  // No-op for Vulkan
+  vertexArrays.erase(vao.id);
 }
 
 FramebufferHandle
@@ -799,10 +1124,17 @@ void VulkanDevice::SetClearDepth(float depth) {
 
 void VulkanDevice::BindPipeline(PipelineHandle pipeline) {
   currentPipeline = pipeline;
+
+  auto it = pipelines.find(pipeline.id);
+  if (it != pipelines.end()) {
+    vkCmdBindPipeline(commandBuffers[currentFrame],
+                      VK_PIPELINE_BIND_POINT_GRAPHICS, it->second.pipeline);
+  }
 }
 
 void VulkanDevice::BindVertexArray(VertexArrayHandle vao) {
-  // No-op for Vulkan
+  // In Vulkan, we store references and bind during draw
+  currentVAO = vao;
 }
 
 void VulkanDevice::BindFramebuffer(FramebufferHandle framebuffer) {
@@ -839,11 +1171,43 @@ void VulkanDevice::SetUniformMatrix4(ShaderHandle shader,
 }
 
 void VulkanDevice::Draw(const DrawCommand &cmd) {
-  // TODO: Implement
+  auto vaoIt = vertexArrays.find(currentVAO.id);
+  if (vaoIt != vertexArrays.end()) {
+    auto vbIt = buffers.find(vaoIt->second.vertexBuffer.id);
+    if (vbIt != buffers.end()) {
+      VkBuffer vbs[] = {vbIt->second.buffer};
+      VkDeviceSize offsets[] = {0};
+      vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, vbs, offsets);
+    }
+  }
+
+  vkCmdDraw(commandBuffers[currentFrame], cmd.vertexCount, cmd.instanceCount,
+            cmd.firstVertex, cmd.firstInstance);
 }
 
 void VulkanDevice::DrawIndexed(const DrawIndexedCommand &cmd) {
-  // TODO: Implement
+  auto vaoIt = vertexArrays.find(currentVAO.id);
+  if (vaoIt != vertexArrays.end()) {
+    auto vbIt = buffers.find(vaoIt->second.vertexBuffer.id);
+    if (vbIt != buffers.end()) {
+      VkBuffer vbs[] = {vbIt->second.buffer};
+      VkDeviceSize offsets[] = {0};
+      vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, vbs, offsets);
+    }
+
+    auto ibIt = buffers.find(vaoIt->second.indexBuffer.id);
+    if (ibIt != buffers.end()) {
+      VkIndexType indexType = (cmd.indexType == IndexType::UInt16)
+                                  ? VK_INDEX_TYPE_UINT16
+                                  : VK_INDEX_TYPE_UINT32;
+      vkCmdBindIndexBuffer(commandBuffers[currentFrame], ibIt->second.buffer, 0,
+                           indexType);
+    }
+  }
+
+  vkCmdDrawIndexed(commandBuffers[currentFrame], cmd.indexCount,
+                   cmd.instanceCount, cmd.firstIndex, cmd.vertexOffset,
+                   cmd.firstInstance);
 }
 
 void VulkanDevice::WaitIdle() {
