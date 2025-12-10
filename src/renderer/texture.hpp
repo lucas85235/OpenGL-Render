@@ -179,13 +179,24 @@ public:
 
     type = texType;
     stbi_set_flip_vertically_on_load(params.flipVertically);
+
+    std::cout << "[Texture] Loading from memory: " << length << " bytes"
+              << std::endl;
+
+    // Force 4 channels (RGBA) for Vulkan alignment requirements
     unsigned char *imageData =
-        stbi_load_from_memory(data, length, &width, &height, &channels, 0);
+        stbi_load_from_memory(data, length, &width, &height, &channels, 4);
 
     if (!imageData) {
-      std::cerr << "[Texture] Failed to load from memory" << std::endl;
+      std::cerr << "[Texture] Failed to load from memory: "
+                << stbi_failure_reason() << std::endl;
       return false;
     }
+
+    // Update channels to reflect actual output (always 4)
+    channels = 4;
+    std::cout << "[Texture] Decompressed to: " << width << "x" << height << " ("
+              << channels << " channels)" << std::endl;
 
     bool result = CreateTextureRHI(imageData, params);
     stbi_image_free(imageData);

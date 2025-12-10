@@ -154,10 +154,43 @@ private:
       mat->GetTexture(aiType, i, &str);
       std::string filename = std::string(str.C_Str());
 
-      // Temporarily disable embedded texture loading
       if (filename.length() > 0 && filename[0] == '*') {
-        std::cout << "[Model] Skipping embedded texture for now" << std::endl;
-        continue;
+        int textureIndex = std::stoi(filename.substr(1));
+        if (textureIndex < (int)scene->mNumTextures) {
+          aiTexture *aiTex = scene->mTextures[textureIndex];
+
+          // Validate texture data
+          if (!aiTex || !aiTex->pcData) {
+            std::cerr << "[Model] Embedded texture " << textureIndex
+                      << " has no data" << std::endl;
+            continue;
+          }
+
+          auto embeddedTex = std::make_shared<Texture>(device);
+
+          // For compressed textures (PNG/JPG), mHeight is 0 and mWidth contains
+          // the compressed size
+          int compressedSize = (aiTex->mHeight == 0)
+                                   ? aiTex->mWidth
+                                   : (aiTex->mWidth * aiTex->mHeight * 4);
+
+          TextureParams params;
+          params.flipVertically = false;
+
+          // LoadFromMemory uses stbi_load_from_memory which decompresses the
+          // image data
+          if (embeddedTex->LoadFromMemory(
+                  reinterpret_cast<unsigned char *>(aiTex->pcData),
+                  compressedSize, texType, params)) {
+            targetMat->AddTexture(embeddedTex);
+            std::cout << "[Model] Loaded embedded texture " << textureIndex
+                      << std::endl;
+            return;
+          } else {
+            std::cerr << "[Model] Failed to load embedded texture "
+                      << textureIndex << std::endl;
+          }
+        }
       } else {
         std::string fullPath = directory + '/' + filename;
         auto tex = TextureManager::GetInstance().LoadTexture(fullPath, texType);
