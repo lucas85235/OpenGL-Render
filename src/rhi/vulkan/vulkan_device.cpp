@@ -5,6 +5,13 @@ namespace RHI {
 VulkanDevice::~VulkanDevice() { Shutdown(); }
 
 bool VulkanDevice::Initialize() {
+  if (!window) {
+    std::cerr << "[Vulkan] Error: Window not set. Call SetWindow() before "
+                 "Initialize()"
+              << std::endl;
+    return false;
+  }
+
   createInstance();
   setupDebugMessenger();
   createSurface();

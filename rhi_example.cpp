@@ -85,10 +85,13 @@ public:
   void Run() {
     using namespace RHI;
 
-    bool useVulkan = false;
+    bool useVulkan = true;
     auto window =
         std::make_unique<Window>(1280, 720, "RHI Demo - Rotating Cube");
-    if (!window->Init())
+
+    // For Vulkan: Init(false) = no OpenGL context, uses GLFW_NO_API
+    // For OpenGL: Init(true) = creates OpenGL context
+    if (!window->Init(!useVulkan))
       return;
 
     auto device = DeviceFactory::Create(useVulkan ? API::Vulkan : API::OpenGL);
