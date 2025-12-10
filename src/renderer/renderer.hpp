@@ -43,6 +43,7 @@ private:
 
   RHI::BufferHandle screenQuadVB;
   RHI::VertexArrayHandle screenQuadVAO;
+  RHI::PipelineHandle mainPipeline;
 
   DirectionalLight sunLight;
   std::vector<PointLightData> pointLights;
@@ -85,6 +86,8 @@ public:
 
   ~Renderer() {
     if (device) {
+      if (RHI::IsValid(mainPipeline))
+        device->DestroyPipeline(mainPipeline);
       if (RHI::IsValid(screenQuadVAO))
         device->DestroyVertexArray(screenQuadVAO);
       if (RHI::IsValid(screenQuadVB))
@@ -97,6 +100,27 @@ public:
     activeShader = defaultShader;
     if (device) {
       device->SetClearColor({0.0f, 0.0f, 0.0f, 1.0f});
+
+      // Create main pipeline for mesh rendering
+      RHI::VertexLayout meshLayout;
+      meshLayout.stride = sizeof(Vertex);
+      meshLayout.attributes = {{0, RHI::VertexAttributeType::Float3,
+                                offsetof(Vertex, Position), false},
+                               {1, RHI::VertexAttributeType::Float3,
+                                offsetof(Vertex, Normal), false},
+                               {2, RHI::VertexAttributeType::Float2,
+                                offsetof(Vertex, TexCoords), false}};
+
+      RHI::PipelineDescriptor pipelineDesc;
+      pipelineDesc.topology = RHI::PrimitiveTopology::TriangleList;
+      pipelineDesc.rasterizer.cullMode = RHI::CullMode::Back;
+      pipelineDesc.rasterizer.frontFace = RHI::FrontFace::CounterClockwise;
+      pipelineDesc.depthStencil.depthTestEnable = true;
+      pipelineDesc.depthStencil.depthWriteEnable = true;
+      pipelineDesc.depthStencil.depthCompareOp = RHI::CompareOp::Less;
+
+      mainPipeline = device->CreatePipeline(
+          pipelineDesc, activeShader->GetHandle(), meshLayout);
     }
     initRenderData();
   }
@@ -197,6 +221,11 @@ public:
       activeShader->SetInt("irradianceMap", 10);
       activeShader->SetInt("prefilterMap", 11);
       activeShader->SetInt("brdfLUT", 12);
+    }
+
+    // Bind pipeline before rendering
+    if (RHI::IsValid(mainPipeline)) {
+      device->BindPipeline(mainPipeline);
     }
 
     for (const auto &cmd : opaqueQueue) {

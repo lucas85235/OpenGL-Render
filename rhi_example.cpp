@@ -1,5 +1,6 @@
 #include "src/core/window.hpp"
 #include "src/renderer/model_factory.hpp"
+#include "src/renderer/renderer.hpp"
 #include "src/rhi/opengl_device.hpp"
 #include "src/rhi/vulkan_device.hpp"
 #include <glm/glm.hpp>
@@ -19,39 +20,50 @@ std::unique_ptr<IDevice> DeviceFactory::Create(API api) {
 }
 } // namespace RHI
 
-class App {
-public:
-  void Run() {
-    using namespace RHI;
+class RHIExampleApp {
+private:
+  std::unique_ptr<Window> window;
+  std::unique_ptr<RHI::IDevice> device;
 
+  Renderer renderer;
+  std::unique_ptr<Shader> shader;
+  std::unique_ptr<Mesh> cube;
+
+  glm::vec3 cameraPos = glm::vec3(0.0f, 1.0f, 3.0f);
+  float lastTime = 0.0f;
+
+public:
+  RHIExampleApp(const std::string &title, int width, int height) {
+    window = std::make_unique<Window>(width, height, title);
+  }
+
+  bool Init() {
     bool useVulkan = true;
-    auto window =
-        std::make_unique<Window>(1280, 720, "RHI Demo - Model Loading");
 
     if (!window->Init(!useVulkan))
-      return;
+      return false;
 
-    auto device = DeviceFactory::Create(useVulkan ? API::Vulkan : API::OpenGL);
+    device = RHI::DeviceFactory::Create(useVulkan ? RHI::API::Vulkan
+                                                  : RHI::API::OpenGL);
     if (!device)
-      return;
+      return false;
 
     if (useVulkan) {
-      auto *vkDevice = dynamic_cast<VulkanDevice *>(device.get());
+      auto *vkDevice = dynamic_cast<RHI::VulkanDevice *>(device.get());
       if (vkDevice)
         vkDevice->SetWindow(window->GetNativeWindow());
     }
 
     if (!device->Initialize())
-      return;
+      return false;
 
     auto info = device->GetDeviceInfo();
     std::cout << "[RHI] Renderer: " << info.rendererName << std::endl;
     std::cout << "[RHI] Version: " << info.apiVersion << std::endl;
 
-    // Create a cube using ModelFactory
-    Mesh cube = ModelFactory::CreateCube(device.get(), 1.0f);
+    // Create shader
+    shader = std::make_unique<Shader>(device.get());
 
-    // Create shader (for OpenGL we use GLSL, Vulkan uses pre-compiled SPIR-V)
     const char *vertexShader = R"(
 #version 330 core
 layout(location = 0) in vec3 aPos;
@@ -79,110 +91,116 @@ void main() {
 }
 )";
 
-    std::vector<ShaderDescriptor> shaderStages = {
-        {ShaderStage::Vertex, vertexShader},
-        {ShaderStage::Fragment, fragmentShader}};
-    auto shader = device->CreateShader(shaderStages);
-    if (!IsValid(shader)) {
-      std::cerr << "[RHI] Failed to create shader" << std::endl;
-      return;
+    if (!shader->CompileFromSource(vertexShader, fragmentShader)) {
+      std::cerr << "[App] Failed to compile shader" << std::endl;
+      return false;
     }
 
-    // Create pipeline
-    VertexLayout layout;
-    layout.stride = sizeof(Vertex);
-    layout.attributes = {
-        {0, VertexAttributeType::Float3, offsetof(Vertex, Position), false},
-        {1, VertexAttributeType::Float3, offsetof(Vertex, Normal), false},
-        {2, VertexAttributeType::Float2, offsetof(Vertex, TexCoords), false}};
+    // Initialize renderer with device and shader
+    renderer.Init(device.get(), shader.get());
 
-    PipelineDescriptor pipelineDesc;
-    pipelineDesc.topology = PrimitiveTopology::TriangleList;
-    pipelineDesc.rasterizer.cullMode = CullMode::Back;
-    pipelineDesc.rasterizer.frontFace = FrontFace::CounterClockwise;
-    pipelineDesc.depthStencil.depthTestEnable = true;
-    pipelineDesc.depthStencil.depthWriteEnable = true;
-    pipelineDesc.depthStencil.depthCompareOp = CompareOp::Less;
-    auto pipeline = device->CreatePipeline(pipelineDesc, shader, layout);
+    // Create a cube mesh
+    cube = std::make_unique<Mesh>(ModelFactory::CreateCube(device.get(), 1.0f));
 
-    std::cout << "[RHI] Setup complete. Entering render loop..." << std::endl;
-    std::cout << "[RHI] Controls: WASD to move camera, ESC to exit"
+    std::cout << "[App] Initialization complete!" << std::endl;
+    return true;
+  }
+
+  void Run() {
+    if (!Init())
+      return;
+
+    std::cout << "[App] Entering render loop..." << std::endl;
+    std::cout << "[App] Controls: WASD to move camera, ESC to exit"
               << std::endl;
-
-    glm::vec3 cameraPos(0.0f, 1.0f, 3.0f);
-    float lastTime = 0.0f;
 
     while (!window->ShouldClose()) {
       float currentTime = static_cast<float>(glfwGetTime());
       float deltaTime = currentTime - lastTime;
       lastTime = currentTime;
 
-      float speed = 2.0f * deltaTime;
-      if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_W) == GLFW_PRESS)
-        cameraPos.z -= speed;
-      if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_S) == GLFW_PRESS)
-        cameraPos.z += speed;
-      if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_A) == GLFW_PRESS)
-        cameraPos.x -= speed;
-      if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_D) == GLFW_PRESS)
-        cameraPos.x += speed;
-      if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_SPACE) == GLFW_PRESS)
-        cameraPos.y += speed;
-      if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_LEFT_SHIFT) ==
-          GLFW_PRESS)
-        cameraPos.y -= speed;
-      if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        break;
+      ProcessInput(deltaTime);
+      Update(deltaTime);
+      Render();
 
-      if (!device->BeginFrame())
-        continue;
-
-      device->BindFramebuffer(FramebufferHandle{0});
-      device->SetClearColor({0.1f, 0.1f, 0.12f, 1.0f});
-      device->Clear(true, true, false);
-
-      int width, height;
-      glfwGetFramebufferSize(window->GetNativeWindow(), &width, &height);
-      device->SetViewport({0.0f, 0.0f, static_cast<float>(width),
-                           static_cast<float>(height), 0.0f, 1.0f});
-
-      device->BindPipeline(pipeline);
-      device->BindVertexArray(cube.GetVAO());
-
-      glm::mat4 view =
-          glm::lookAt(cameraPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-      glm::mat4 proj =
-          glm::perspective(glm::radians(45.0f),
-                           static_cast<float>(width) / height, 0.1f, 100.0f);
-      glm::mat4 model = glm::rotate(glm::mat4(1.0f), currentTime * 0.5f,
-                                    glm::vec3(0.0f, 1.0f, 0.0f));
-      model =
-          glm::rotate(model, currentTime * 0.3f, glm::vec3(1.0f, 0.0f, 0.0f));
-
-      device->SetUniformMatrix4(shader, "model", &model[0][0]);
-      device->SetUniformMatrix4(shader, "view", &view[0][0]);
-      device->SetUniformMatrix4(shader, "projection", &proj[0][0]);
-
-      DrawIndexedCommand drawCmd;
-      drawCmd.indexCount = cube.GetIndexCount();
-      drawCmd.instanceCount = 1;
-      drawCmd.indexType = IndexType::UInt32;
-      device->DrawIndexed(drawCmd);
-
-      device->EndFrame();
       window->OnUpdate();
     }
 
+    Shutdown();
+  }
+
+private:
+  void ProcessInput(float dt) {
+    float speed = 2.5f * dt;
+    if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_W) == GLFW_PRESS)
+      cameraPos.z -= speed;
+    if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_S) == GLFW_PRESS)
+      cameraPos.z += speed;
+    if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_A) == GLFW_PRESS)
+      cameraPos.x -= speed;
+    if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_D) == GLFW_PRESS)
+      cameraPos.x += speed;
+    if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_SPACE) == GLFW_PRESS)
+      cameraPos.y += speed;
+    if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_LEFT_SHIFT) ==
+        GLFW_PRESS)
+      cameraPos.y -= speed;
+    if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
+      window->Close();
+  }
+
+  void Update(float dt) {
+    // Game logic updates here
+  }
+
+  void Render() {
+    if (!device->BeginFrame())
+      return;
+
+    // Clear screen
+    device->BindFramebuffer(RHI::FramebufferHandle{0});
+    device->SetClearColor({0.05f, 0.05f, 0.08f, 1.0f});
+    device->Clear(true, true, false);
+
+    int width, height;
+    glfwGetFramebufferSize(window->GetNativeWindow(), &width, &height);
+    device->SetViewport({0.0f, 0.0f, static_cast<float>(width),
+                         static_cast<float>(height), 0.0f, 1.0f});
+
+    // Setup view and projection
+    glm::mat4 view =
+        glm::lookAt(cameraPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 proj = glm::perspective(
+        glm::radians(45.0f), static_cast<float>(width) / height, 0.1f, 100.0f);
+
+    // Begin scene with renderer
+    renderer.BeginScene(view, proj, cameraPos);
+
+    // Submit a rotating cube
+    float time = static_cast<float>(glfwGetTime());
+    glm::mat4 model =
+        glm::rotate(glm::mat4(1.0f), time * 0.5f, glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::rotate(model, time * 0.3f, glm::vec3(1.0f, 0.0f, 0.0f));
+
+    renderer.SubmitMesh(*cube, model);
+
+    // End scene - this renders all submitted meshes
+    renderer.EndScene();
+
+    device->EndFrame();
+  }
+
+  void Shutdown() {
     device->WaitIdle();
-    device->DestroyPipeline(pipeline);
-    device->DestroyShader(shader);
+    cube.reset();
+    shader.reset();
     device->Shutdown();
-    std::cout << "[RHI] Resources released successfully" << std::endl;
+    std::cout << "[App] Shutdown complete" << std::endl;
   }
 };
 
 int main() {
-  App app;
+  RHIExampleApp app("RHI Demo - Model Loading", 1280, 720);
   app.Run();
   return 0;
 }
