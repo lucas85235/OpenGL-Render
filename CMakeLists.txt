@@ -59,10 +59,19 @@ endif()
 # Vulkan Shader Compilation (GLSL -> SPIR-V)
 # ==========================================
 find_program(GLSLC glslc HINTS ${Vulkan_GLSLC_EXECUTABLE} ENV VULKAN_SDK PATH_SUFFIXES bin)
+find_program(GLSLANG glslangValidator)
 
 if(GLSLC)
+    set(SHADER_COMPILER ${GLSLC})
+    set(SHADER_COMPILE_FLAGS "")
     message(STATUS "Found glslc: ${GLSLC}")
-    
+elseif(GLSLANG)
+    set(SHADER_COMPILER ${GLSLANG})
+    set(SHADER_COMPILE_FLAGS "-V")
+    message(STATUS "Found glslangValidator: ${GLSLANG}")
+endif()
+
+if(SHADER_COMPILER)
     set(VULKAN_SHADER_SOURCE_DIR "${CMAKE_SOURCE_DIR}/src/shaders/vulkan")
     set(VULKAN_SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders/vulkan")
     
@@ -82,7 +91,7 @@ if(GLSLC)
         
         add_custom_command(
             OUTPUT ${SPIRV_OUTPUT}
-            COMMAND ${GLSLC} ${SHADER} -o ${SPIRV_OUTPUT}
+            COMMAND ${SHADER_COMPILER} ${SHADER_COMPILE_FLAGS} ${SHADER} -o ${SPIRV_OUTPUT}
             DEPENDS ${SHADER}
             COMMENT "Compiling Vulkan shader: ${SHADER_NAME}"
         )
@@ -91,7 +100,7 @@ if(GLSLC)
     
     add_custom_target(compile_vulkan_shaders ALL DEPENDS ${SPIRV_OUTPUTS})
 else()
-    message(WARNING "glslc not found. Vulkan shaders will not be compiled. Install Vulkan SDK or glslang-tools.")
+    message(FATAL_ERROR "No SPIR-V shader compiler found. Install glslang-tools or Vulkan SDK.")
 endif()
 
 # Copiar Shaders para a pasta de build

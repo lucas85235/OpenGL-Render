@@ -30,9 +30,7 @@ ninja -C $BUILD_DIR
 # 3. Executa se a compilação for bem sucedida
 if [ $? -eq 0 ]; then
     echo -e "\n${GREEN}✓ Build Sucesso! Executando...${NC}\n"
-    # Copia o executável para a raiz ou executa direto de lá
-    cp $BUILD_DIR/model_viewer .
-    ./model_viewer
+    cd $BUILD_DIR && ./model_viewer
 else
     echo -e "\n${RED}✗ Falha na compilação.${NC}"
     exit 1
