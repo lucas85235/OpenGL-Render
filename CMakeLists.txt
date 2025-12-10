@@ -55,6 +55,45 @@ if(NOT EXISTS ${STB_IMAGE_PATH})
     )
 endif()
 
+# ==========================================
+# Vulkan Shader Compilation (GLSL -> SPIR-V)
+# ==========================================
+find_program(GLSLC glslc HINTS ${Vulkan_GLSLC_EXECUTABLE} ENV VULKAN_SDK PATH_SUFFIXES bin)
+
+if(GLSLC)
+    message(STATUS "Found glslc: ${GLSLC}")
+    
+    set(VULKAN_SHADER_SOURCE_DIR "${CMAKE_SOURCE_DIR}/src/shaders/vulkan")
+    set(VULKAN_SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders/vulkan")
+    
+    file(MAKE_DIRECTORY ${VULKAN_SHADER_BINARY_DIR})
+    
+    file(GLOB VULKAN_SHADER_SOURCES 
+        "${VULKAN_SHADER_SOURCE_DIR}/*.vert"
+        "${VULKAN_SHADER_SOURCE_DIR}/*.frag"
+        "${VULKAN_SHADER_SOURCE_DIR}/*.comp"
+        "${VULKAN_SHADER_SOURCE_DIR}/*.geom"
+    )
+    
+    set(SPIRV_OUTPUTS)
+    foreach(SHADER ${VULKAN_SHADER_SOURCES})
+        get_filename_component(SHADER_NAME ${SHADER} NAME)
+        set(SPIRV_OUTPUT "${VULKAN_SHADER_BINARY_DIR}/${SHADER_NAME}.spv")
+        
+        add_custom_command(
+            OUTPUT ${SPIRV_OUTPUT}
+            COMMAND ${GLSLC} ${SHADER} -o ${SPIRV_OUTPUT}
+            DEPENDS ${SHADER}
+            COMMENT "Compiling Vulkan shader: ${SHADER_NAME}"
+        )
+        list(APPEND SPIRV_OUTPUTS ${SPIRV_OUTPUT})
+    endforeach()
+    
+    add_custom_target(compile_vulkan_shaders ALL DEPENDS ${SPIRV_OUTPUTS})
+else()
+    message(WARNING "glslc not found. Vulkan shaders will not be compiled. Install Vulkan SDK or glslang-tools.")
+endif()
+
 # Copiar Shaders para a pasta de build
 file(COPY ${CMAKE_SOURCE_DIR}/src/shaders DESTINATION ${CMAKE_BINARY_DIR})
 

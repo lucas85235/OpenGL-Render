@@ -1,4 +1,5 @@
 #include "vulkan_device.hpp"
+#include <fstream>
 
 namespace RHI {
 
@@ -182,9 +183,12 @@ std::vector<const char *> VulkanDevice::getRequiredExtensions() {
 }
 
 void VulkanDevice::createInstance() {
-  if (enableValidationLayers && !checkValidationLayerSupport()) {
-    std::cerr << "[Vulkan] Validation layers requested but not available"
+  bool useValidationLayers = enableValidationLayers;
+
+  if (useValidationLayers && !checkValidationLayerSupport()) {
+    std::cerr << "[Vulkan] Validation layers not available, disabling"
               << std::endl;
+    useValidationLayers = false;
   }
 
   VkApplicationInfo appInfo{};
@@ -204,7 +208,7 @@ void VulkanDevice::createInstance() {
   createInfo.ppEnabledExtensionNames = extensions.data();
 
   VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
-  if (enableValidationLayers) {
+  if (useValidationLayers) {
     createInfo.enabledLayerCount =
         static_cast<uint32_t>(validationLayers.size());
     createInfo.ppEnabledLayerNames = validationLayers.data();
@@ -1342,15 +1346,52 @@ static const uint32_t fragShaderCode[] = {
     0x00000007, 0x00000012, 0x0000000f, 0x00000010, 0x00000011, 0x0000000e,
     0x0003003e, 0x00000009, 0x00000012, 0x000100fd, 0x00010038};
 
+// Helper function to read SPIR-V binary file
+static std::vector<uint32_t> readSpirvFile(const std::string &filename) {
+  std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+  if (!file.is_open()) {
+    return {};
+  }
+
+  size_t fileSize = static_cast<size_t>(file.tellg());
+  std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+
+  file.seekg(0);
+  file.read(reinterpret_cast<char *>(buffer.data()), fileSize);
+  file.close();
+
+  return buffer;
+}
+
 ShaderHandle
 VulkanDevice::CreateShader(const std::vector<ShaderDescriptor> &stages) {
   VulkanShader vkShader{};
 
-  // Create shader modules from embedded SPIR-V
+  // Try to load from files first
+  std::vector<uint32_t> vertCode =
+      readSpirvFile("shaders/vulkan/cube.vert.spv");
+  std::vector<uint32_t> fragCode =
+      readSpirvFile("shaders/vulkan/cube.frag.spv");
+
+  bool useEmbedded = vertCode.empty() || fragCode.empty();
+
+  if (useEmbedded) {
+    std::cout << "[Vulkan] Using embedded SPIR-V shaders" << std::endl;
+  } else {
+    std::cout << "[Vulkan] Loaded SPIR-V shaders from files" << std::endl;
+  }
+
   VkShaderModuleCreateInfo vertInfo{};
   vertInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  vertInfo.codeSize = sizeof(vertShaderCode);
-  vertInfo.pCode = vertShaderCode;
+
+  if (useEmbedded) {
+    vertInfo.codeSize = sizeof(vertShaderCode);
+    vertInfo.pCode = vertShaderCode;
+  } else {
+    vertInfo.codeSize = vertCode.size() * sizeof(uint32_t);
+    vertInfo.pCode = vertCode.data();
+  }
 
   if (vkCreateShaderModule(device, &vertInfo, nullptr, &vkShader.vertModule) !=
       VK_SUCCESS) {
@@ -1360,8 +1401,14 @@ VulkanDevice::CreateShader(const std::vector<ShaderDescriptor> &stages) {
 
   VkShaderModuleCreateInfo fragInfo{};
   fragInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  fragInfo.codeSize = sizeof(fragShaderCode);
-  fragInfo.pCode = fragShaderCode;
+
+  if (useEmbedded) {
+    fragInfo.codeSize = sizeof(fragShaderCode);
+    fragInfo.pCode = fragShaderCode;
+  } else {
+    fragInfo.codeSize = fragCode.size() * sizeof(uint32_t);
+    fragInfo.pCode = fragCode.data();
+  }
 
   if (vkCreateShaderModule(device, &fragInfo, nullptr, &vkShader.fragModule) !=
       VK_SUCCESS) {
