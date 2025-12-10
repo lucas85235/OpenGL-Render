@@ -1,5 +1,5 @@
 #include "src/core/window.hpp"
-#include "src/renderer/model_factory.hpp"
+#include "src/renderer/model.hpp"
 #include "src/renderer/renderer.hpp"
 #include "src/rhi/opengl_device.hpp"
 #include "src/rhi/vulkan_device.hpp"
@@ -27,7 +27,7 @@ private:
 
   Renderer renderer;
   std::unique_ptr<Shader> shader;
-  std::unique_ptr<Mesh> cube;
+  std::shared_ptr<Model> model;
 
   glm::vec3 cameraPos = glm::vec3(0.0f, 1.0f, 3.0f);
   float lastTime = 0.0f;
@@ -99,8 +99,12 @@ void main() {
     // Initialize renderer with device and shader
     renderer.Init(device.get(), shader.get());
 
-    // Create a cube mesh
-    cube = std::make_unique<Mesh>(ModelFactory::CreateCube(device.get(), 1.0f));
+    // Initialize texture manager for model loading
+    TextureManager::GetInstance().SetDevice(device.get());
+
+    // Load DamagedHelmet model
+    model = std::make_shared<Model>(device.get(),
+                                    "models/DamagedHelmet/DamagedHelmet.glb");
 
     std::cout << "[App] Initialization complete!" << std::endl;
     return true;
@@ -176,13 +180,14 @@ private:
     // Begin scene with renderer
     renderer.BeginScene(view, proj, cameraPos);
 
-    // Submit a rotating cube
+    // Submit rotating model
     float time = static_cast<float>(glfwGetTime());
-    glm::mat4 model =
+    glm::mat4 transform =
         glm::rotate(glm::mat4(1.0f), time * 0.5f, glm::vec3(0.0f, 1.0f, 0.0f));
-    model = glm::rotate(model, time * 0.3f, glm::vec3(1.0f, 0.0f, 0.0f));
+    transform =
+        glm::rotate(transform, time * 0.3f, glm::vec3(1.0f, 0.0f, 0.0f));
 
-    renderer.SubmitMesh(*cube, model);
+    renderer.Submit(model, transform);
 
     // End scene - this renders all submitted meshes
     renderer.EndScene();
@@ -192,7 +197,7 @@ private:
 
   void Shutdown() {
     device->WaitIdle();
-    cube.reset();
+    model.reset();
     shader.reset();
     device->Shutdown();
     std::cout << "[App] Shutdown complete" << std::endl;

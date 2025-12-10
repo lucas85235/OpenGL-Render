@@ -7,17 +7,14 @@
 #include <assimp/scene.h>
 #include <glm/glm.hpp>
 
-
 #include "material.hpp"
 #include "mesh.hpp"
 #include "texture.hpp"
-
 
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
-
 
 class Model {
 private:
@@ -157,23 +154,10 @@ private:
       mat->GetTexture(aiType, i, &str);
       std::string filename = std::string(str.C_Str());
 
+      // Temporarily disable embedded texture loading
       if (filename.length() > 0 && filename[0] == '*') {
-        int textureIndex = std::stoi(filename.substr(1));
-        if (textureIndex < (int)scene->mNumTextures) {
-          aiTexture *aiTex = scene->mTextures[textureIndex];
-          auto embeddedTex = std::make_shared<Texture>(device);
-          int size = (aiTex->mHeight == 0) ? aiTex->mWidth
-                                           : aiTex->mWidth * aiTex->mHeight * 4;
-          TextureParams params;
-          params.flipVertically = false;
-
-          if (embeddedTex->LoadFromMemory(
-                  reinterpret_cast<unsigned char *>(aiTex->pcData), size,
-                  texType, params)) {
-            targetMat->AddTexture(embeddedTex);
-            return;
-          }
-        }
+        std::cout << "[Model] Skipping embedded texture for now" << std::endl;
+        continue;
       } else {
         std::string fullPath = directory + '/' + filename;
         auto tex = TextureManager::GetInstance().LoadTexture(fullPath, texType);
