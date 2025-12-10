@@ -1,14 +1,12 @@
 #include "src/core/window.hpp"
+#include "src/renderer/model_factory.hpp"
 #include "src/rhi/opengl_device.hpp"
 #include "src/rhi/vulkan_device.hpp"
-#include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
-#include <sstream>
 
 namespace RHI {
-
 std::unique_ptr<IDevice> DeviceFactory::Create(API api) {
   switch (api) {
   case API::OpenGL:
@@ -19,66 +17,7 @@ std::unique_ptr<IDevice> DeviceFactory::Create(API api) {
     return nullptr;
   }
 }
-
 } // namespace RHI
-
-namespace {
-
-std::string LoadShaderFile(const std::string &path) {
-  std::ifstream file(path);
-  if (!file.is_open()) {
-    std::cerr << "[RHI] Failed to load shader: " << path << std::endl;
-    return "";
-  }
-  std::stringstream buffer;
-  buffer << file.rdbuf();
-  return buffer.str();
-}
-
-const char *cubeVertexShader = R"(
-#version 330 core
-layout(location = 0) in vec3 aPos;
-layout(location = 1) in vec3 aColor;
-layout(location = 2) in vec2 aTexCoord;
-
-out vec3 vertexColor;
-out vec2 texCoord;
-
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
-
-void main() {
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
-    vertexColor = aColor;
-    texCoord = aTexCoord;
-}
-)";
-
-const char *cubeFragmentShader = R"(
-#version 330 core
-in vec3 vertexColor;
-in vec2 texCoord;
-out vec4 FragColor;
-
-uniform float time;
-
-void main() {
-    vec3 color = vertexColor;
-    color.r *= 0.5 + 0.5 * sin(time * 2.0);
-    color.g *= 0.5 + 0.5 * sin(time * 2.0 + 2.094);
-    color.b *= 0.5 + 0.5 * sin(time * 2.0 + 4.189);
-    FragColor = vec4(color, 1.0);
-}
-)";
-
-struct CubeVertex {
-  float x, y, z;
-  float r, g, b;
-  float u, v;
-};
-
-} // namespace
 
 class App {
 public:
@@ -87,10 +26,8 @@ public:
 
     bool useVulkan = true;
     auto window =
-        std::make_unique<Window>(1280, 720, "RHI Demo - Rotating Cube");
+        std::make_unique<Window>(1280, 720, "RHI Demo - Model Loading");
 
-    // For Vulkan: Init(false) = no OpenGL context, uses GLFW_NO_API
-    // For OpenGL: Init(true) = creates OpenGL context
     if (!window->Init(!useVulkan))
       return;
 
@@ -111,79 +48,53 @@ public:
     std::cout << "[RHI] Renderer: " << info.rendererName << std::endl;
     std::cout << "[RHI] Version: " << info.apiVersion << std::endl;
 
-    // Cube vertices with position, color, and texcoords
-    std::vector<CubeVertex> cubeVertices = {
-        // Front face (Z+)
-        {-0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f},
-        {0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f},
-        {0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f},
-        {-0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f},
-        // Back face (Z-)
-        {0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f},
-        {-0.5f, -0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f},
-        {-0.5f, 0.5f, -0.5f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f},
-        {0.5f, 0.5f, -0.5f, 0.5f, 0.5f, 0.5f, 0.0f, 1.0f},
-        // Top face (Y+)
-        {-0.5f, 0.5f, 0.5f, 1.0f, 0.5f, 0.0f, 0.0f, 0.0f},
-        {0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.5f, 1.0f, 0.0f},
-        {0.5f, 0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f},
-        {-0.5f, 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f},
-        // Bottom face (Y-)
-        {-0.5f, -0.5f, -0.5f, 0.0f, 0.5f, 1.0f, 0.0f, 0.0f},
-        {0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.5f, 1.0f, 0.0f},
-        {0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 1.0f, 1.0f},
-        {-0.5f, -0.5f, 0.5f, 0.0f, 0.5f, 0.5f, 0.0f, 1.0f},
-        // Right face (X+)
-        {0.5f, -0.5f, 0.5f, 0.8f, 0.2f, 0.2f, 0.0f, 0.0f},
-        {0.5f, -0.5f, -0.5f, 0.2f, 0.8f, 0.2f, 1.0f, 0.0f},
-        {0.5f, 0.5f, -0.5f, 0.2f, 0.2f, 0.8f, 1.0f, 1.0f},
-        {0.5f, 0.5f, 0.5f, 0.8f, 0.8f, 0.2f, 0.0f, 1.0f},
-        // Left face (X-)
-        {-0.5f, -0.5f, -0.5f, 0.2f, 0.8f, 0.8f, 0.0f, 0.0f},
-        {-0.5f, -0.5f, 0.5f, 0.8f, 0.2f, 0.8f, 1.0f, 0.0f},
-        {-0.5f, 0.5f, 0.5f, 0.8f, 0.8f, 0.8f, 1.0f, 1.0f},
-        {-0.5f, 0.5f, -0.5f, 0.4f, 0.4f, 0.4f, 0.0f, 1.0f},
-    };
+    // Create a cube using ModelFactory
+    Mesh cube = ModelFactory::CreateCube(device.get(), 1.0f);
 
-    std::vector<uint32_t> cubeIndices = {
-        0,  1,  2,  2,  3,  0,  // Front
-        4,  5,  6,  6,  7,  4,  // Back
-        8,  9,  10, 10, 11, 8,  // Top
-        12, 13, 14, 14, 15, 12, // Bottom
-        16, 17, 18, 18, 19, 16, // Right
-        20, 21, 22, 22, 23, 20  // Left
-    };
+    // Create shader (for OpenGL we use GLSL, Vulkan uses pre-compiled SPIR-V)
+    const char *vertexShader = R"(
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aTexCoord;
 
-    // Create RHI resources
-    BufferDescriptor vbDesc;
-    vbDesc.type = BufferType::Vertex;
-    vbDesc.usage = BufferUsage::Static;
-    vbDesc.size = cubeVertices.size() * sizeof(CubeVertex);
-    vbDesc.data = cubeVertices.data();
-    auto vertexBuffer = device->CreateBuffer(vbDesc);
+out vec3 fragColor;
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
 
-    BufferDescriptor ibDesc;
-    ibDesc.type = BufferType::Index;
-    ibDesc.usage = BufferUsage::Static;
-    ibDesc.size = cubeIndices.size() * sizeof(uint32_t);
-    ibDesc.data = cubeIndices.data();
-    auto indexBuffer = device->CreateBuffer(ibDesc);
+void main() {
+    gl_Position = projection * view * model * vec4(aPos, 1.0);
+    fragColor = aNormal * 0.5 + 0.5;
+}
+)";
+
+    const char *fragmentShader = R"(
+#version 330 core
+in vec3 fragColor;
+out vec4 FragColor;
+
+void main() {
+    FragColor = vec4(fragColor, 1.0);
+}
+)";
 
     std::vector<ShaderDescriptor> shaderStages = {
-        {ShaderStage::Vertex, cubeVertexShader},
-        {ShaderStage::Fragment, cubeFragmentShader}};
+        {ShaderStage::Vertex, vertexShader},
+        {ShaderStage::Fragment, fragmentShader}};
     auto shader = device->CreateShader(shaderStages);
     if (!IsValid(shader)) {
       std::cerr << "[RHI] Failed to create shader" << std::endl;
       return;
     }
 
+    // Create pipeline
     VertexLayout layout;
-    layout.stride = sizeof(CubeVertex);
+    layout.stride = sizeof(Vertex);
     layout.attributes = {
-        {0, VertexAttributeType::Float3, offsetof(CubeVertex, x), false},
-        {1, VertexAttributeType::Float3, offsetof(CubeVertex, r), false},
-        {2, VertexAttributeType::Float2, offsetof(CubeVertex, u), false}};
+        {0, VertexAttributeType::Float3, offsetof(Vertex, Position), false},
+        {1, VertexAttributeType::Float3, offsetof(Vertex, Normal), false},
+        {2, VertexAttributeType::Float2, offsetof(Vertex, TexCoords), false}};
 
     PipelineDescriptor pipelineDesc;
     pipelineDesc.topology = PrimitiveTopology::TriangleList;
@@ -193,8 +104,6 @@ public:
     pipelineDesc.depthStencil.depthWriteEnable = true;
     pipelineDesc.depthStencil.depthCompareOp = CompareOp::Less;
     auto pipeline = device->CreatePipeline(pipelineDesc, shader, layout);
-
-    auto vao = device->CreateVertexArray(vertexBuffer, indexBuffer, layout);
 
     std::cout << "[RHI] Setup complete. Entering render loop..." << std::endl;
     std::cout << "[RHI] Controls: WASD to move camera, ESC to exit"
@@ -208,7 +117,6 @@ public:
       float deltaTime = currentTime - lastTime;
       lastTime = currentTime;
 
-      // Camera controls
       float speed = 2.0f * deltaTime;
       if (glfwGetKey(window->GetNativeWindow(), GLFW_KEY_W) == GLFW_PRESS)
         cameraPos.z -= speed;
@@ -235,32 +143,28 @@ public:
 
       int width, height;
       glfwGetFramebufferSize(window->GetNativeWindow(), &width, &height);
-      device->SetViewport({0.0f, 0.0f, width, height, 0.0f, 1.0f});
+      device->SetViewport({0.0f, 0.0f, static_cast<float>(width),
+                           static_cast<float>(height), 0.0f, 1.0f});
 
       device->BindPipeline(pipeline);
-      device->BindVertexArray(vao);
+      device->BindVertexArray(cube.GetVAO());
 
-      // View and projection matrices
-      glm::mat4 view = glm::lookAt(cameraPos, glm::vec3(0.0f, 0.0f, 0.0f),
-                                   glm::vec3(0.0f, 1.0f, 0.0f));
+      glm::mat4 view =
+          glm::lookAt(cameraPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
       glm::mat4 proj =
           glm::perspective(glm::radians(45.0f),
                            static_cast<float>(width) / height, 0.1f, 100.0f);
-
-      // Rotating model matrix
-      glm::mat4 model = glm::mat4(1.0f);
-      model =
-          glm::rotate(model, currentTime * 0.5f, glm::vec3(0.0f, 1.0f, 0.0f));
+      glm::mat4 model = glm::rotate(glm::mat4(1.0f), currentTime * 0.5f,
+                                    glm::vec3(0.0f, 1.0f, 0.0f));
       model =
           glm::rotate(model, currentTime * 0.3f, glm::vec3(1.0f, 0.0f, 0.0f));
 
       device->SetUniformMatrix4(shader, "model", &model[0][0]);
       device->SetUniformMatrix4(shader, "view", &view[0][0]);
       device->SetUniformMatrix4(shader, "projection", &proj[0][0]);
-      device->SetUniform(shader, "time", currentTime);
 
       DrawIndexedCommand drawCmd;
-      drawCmd.indexCount = cubeIndices.size();
+      drawCmd.indexCount = cube.GetIndexCount();
       drawCmd.instanceCount = 1;
       drawCmd.indexType = IndexType::UInt32;
       device->DrawIndexed(drawCmd);
@@ -270,11 +174,8 @@ public:
     }
 
     device->WaitIdle();
-    device->DestroyVertexArray(vao);
     device->DestroyPipeline(pipeline);
     device->DestroyShader(shader);
-    device->DestroyBuffer(indexBuffer);
-    device->DestroyBuffer(vertexBuffer);
     device->Shutdown();
     std::cout << "[RHI] Resources released successfully" << std::endl;
   }

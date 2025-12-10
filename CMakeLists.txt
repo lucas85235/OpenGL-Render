@@ -114,6 +114,7 @@ file(COPY ${CMAKE_SOURCE_DIR}/models DESTINATION ${CMAKE_BINARY_DIR})
 # ==========================================
 # Adiciona todos os arquivos .cpp e .hpp para aparecerem na IDE
 file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.hpp" "rhi_example.cpp")
+list(FILTER SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 
 add_executable(${EXECUTABLE_NAME} ${SOURCES})
 
