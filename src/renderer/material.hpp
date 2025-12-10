@@ -3,7 +3,6 @@
 
 #include "../rhi/rhi_device.h"
 #include "texture.hpp"
-#include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <memory>
 #include <string>
@@ -14,10 +13,8 @@ struct MaterialProperties {
   float metallic = 0.0f;
   float roughness = 0.5f;
   float ao = 1.0f;
-
   glm::vec3 emission = glm::vec3(0.0f);
   float emissionStrength = 0.0f;
-
   glm::vec3 ambient = glm::vec3(0.3f);
   glm::vec3 diffuse = glm::vec3(1.0f);
   glm::vec3 specular = glm::vec3(0.5f);
@@ -30,14 +27,8 @@ private:
   MaterialProperties properties;
   std::vector<std::shared_ptr<Texture>> textures;
 
-  // RHI texture handles (for Vulkan)
-  std::vector<RHI::TextureHandle> rhiTextures;
-  RHI::IDevice *device = nullptr;
-
 public:
   Material(const std::string &materialName = "Default") : name(materialName) {}
-
-  void SetDevice(RHI::IDevice *dev) { device = dev; }
 
   void AddTexture(std::shared_ptr<Texture> texture) {
     if (texture && texture->IsLoaded()) {
@@ -45,17 +36,10 @@ public:
     }
   }
 
-  void AddRHITexture(RHI::TextureHandle texture) {
-    if (RHI::IsValid(texture)) {
-      rhiTextures.push_back(texture);
-    }
-  }
-
   bool LoadTexture(const std::string &path, TextureType type,
                    const TextureParams &params = TextureParams()) {
     auto &manager = TextureManager::GetInstance();
     auto texture = manager.LoadTexture(path, type, params);
-
     if (texture) {
       AddTexture(texture);
       return true;
@@ -63,17 +47,14 @@ public:
     return false;
   }
 
-  // RHI-based Apply (for Vulkan/cross-platform)
   void Apply(RHI::IDevice *dev, RHI::ShaderHandle shader) const {
     if (!dev)
       return;
 
-    // Bind RHI textures
-    for (size_t i = 0; i < rhiTextures.size(); i++) {
-      dev->BindTexture(static_cast<uint32_t>(i), rhiTextures[i]);
+    for (size_t i = 0; i < textures.size(); i++) {
+      textures[i]->Bind(static_cast<uint32_t>(i));
     }
 
-    // Set material uniforms via RHI
     dev->SetUniform(shader, "material.albedo", &properties.albedo[0], 3);
     dev->SetUniform(shader, "material.metallic", properties.metallic);
     dev->SetUniform(shader, "material.roughness", properties.roughness);
@@ -83,85 +64,8 @@ public:
                     properties.emissionStrength);
   }
 
-  // Legacy OpenGL Apply
-  void Apply(unsigned int shaderProgram) const {
-    int diffuseNr = 1;
-    int specularNr = 1;
-    int normalNr = 1;
-    int heightNr = 1;
-    int emissionNr = 1;
-    int metallicNr = 1;
-    int roughnessNr = 1;
-    int aoNr = 1;
-
-    for (size_t i = 0; i < textures.size(); i++) {
-      textures[i]->Bind(i);
-
-      std::string uniformName;
-      TextureType type = textures[i]->GetType();
-
-      switch (type) {
-      case TextureType::DIFFUSE:
-        uniformName = "texture_diffuse" + std::to_string(diffuseNr++);
-        break;
-      case TextureType::SPECULAR:
-        uniformName = "texture_specular" + std::to_string(specularNr++);
-        break;
-      case TextureType::NORMAL:
-        uniformName = "texture_normal" + std::to_string(normalNr++);
-        break;
-      case TextureType::HEIGHT:
-        uniformName = "texture_height" + std::to_string(heightNr++);
-        break;
-      case TextureType::EMISSION:
-        uniformName = "texture_emission" + std::to_string(emissionNr++);
-        break;
-      case TextureType::METALLIC:
-        uniformName = "texture_metallic" + std::to_string(metallicNr++);
-        break;
-      case TextureType::ROUGHNESS:
-        uniformName = "texture_roughness" + std::to_string(roughnessNr++);
-        break;
-      case TextureType::AO:
-        uniformName = "texture_ao" + std::to_string(aoNr++);
-        break;
-      }
-
-      glUniform1i(glGetUniformLocation(shaderProgram, uniformName.c_str()), i);
-    }
-
-    SendProperties(shaderProgram);
-  }
-
-  void SendProperties(unsigned int shaderProgram) const {
-    glUniform3fv(glGetUniformLocation(shaderProgram, "material.albedo"), 1,
-                 &properties.albedo[0]);
-    glUniform1f(glGetUniformLocation(shaderProgram, "material.metallic"),
-                properties.metallic);
-    glUniform1f(glGetUniformLocation(shaderProgram, "material.roughness"),
-                properties.roughness);
-    glUniform1f(glGetUniformLocation(shaderProgram, "material.ao"),
-                properties.ao);
-
-    glUniform3fv(glGetUniformLocation(shaderProgram, "material.emission"), 1,
-                 &properties.emission[0]);
-    glUniform1f(
-        glGetUniformLocation(shaderProgram, "material.emissionStrength"),
-        properties.emissionStrength);
-
-    glUniform3fv(glGetUniformLocation(shaderProgram, "material.ambient"), 1,
-                 &properties.ambient[0]);
-    glUniform3fv(glGetUniformLocation(shaderProgram, "material.diffuse"), 1,
-                 &properties.diffuse[0]);
-    glUniform3fv(glGetUniformLocation(shaderProgram, "material.specular"), 1,
-                 &properties.specular[0]);
-    glUniform1f(glGetUniformLocation(shaderProgram, "material.shininess"),
-                properties.shininess);
-  }
-
   void SetName(const std::string &n) { name = n; }
   const std::string &GetName() const { return name; }
-
   MaterialProperties &GetProperties() { return properties; }
   const MaterialProperties &GetProperties() const { return properties; }
 
@@ -175,7 +79,6 @@ public:
   void SetEmissionStrength(float strength) {
     properties.emissionStrength = strength;
   }
-
   void SetAmbient(const glm::vec3 &ambient) { properties.ambient = ambient; }
   void SetDiffuse(const glm::vec3 &diffuse) { properties.diffuse = diffuse; }
   void SetSpecular(const glm::vec3 &specular) {
@@ -196,10 +99,7 @@ public:
     return false;
   }
 
-  void Clear() {
-    textures.clear();
-    rhiTextures.clear();
-  }
+  void Clear() { textures.clear(); }
 };
 
 class MaterialLibrary {
@@ -209,7 +109,6 @@ public:
     mat.SetAlbedo(glm::vec3(1.0f, 0.765557f, 0.336057f));
     mat.SetMetallic(1.0f);
     mat.SetRoughness(0.3f);
-    mat.SetAO(1.0f);
     return mat;
   }
 
@@ -218,7 +117,6 @@ public:
     mat.SetAlbedo(glm::vec3(0.972f, 0.960f, 0.915f));
     mat.SetMetallic(1.0f);
     mat.SetRoughness(0.2f);
-    mat.SetAO(1.0f);
     return mat;
   }
 
@@ -227,7 +125,6 @@ public:
     mat.SetAlbedo(glm::vec3(0.955f, 0.637f, 0.538f));
     mat.SetMetallic(1.0f);
     mat.SetRoughness(0.4f);
-    mat.SetAO(1.0f);
     return mat;
   }
 
@@ -236,7 +133,6 @@ public:
     mat.SetAlbedo(glm::vec3(1.0f, 0.0f, 0.0f));
     mat.SetMetallic(0.0f);
     mat.SetRoughness(0.6f);
-    mat.SetAO(1.0f);
     return mat;
   }
 
@@ -245,7 +141,6 @@ public:
     mat.SetAlbedo(glm::vec3(0.2f, 0.2f, 0.2f));
     mat.SetMetallic(0.0f);
     mat.SetRoughness(0.9f);
-    mat.SetAO(1.0f);
     return mat;
   }
 
@@ -255,8 +150,6 @@ public:
     mat.SetAlbedo(color);
     mat.SetEmission(color);
     mat.SetEmissionStrength(strength);
-    mat.SetMetallic(0.0f);
-    mat.SetRoughness(1.0f);
     return mat;
   }
 

@@ -11,7 +11,6 @@
 #include "model.hpp"
 #include "render_command.hpp"
 #include "shader.hpp"
-#include "skybox_manager.hpp"
 
 struct SceneData {
   glm::mat4 viewMatrix;
@@ -38,27 +37,19 @@ class Renderer {
 private:
   std::vector<RenderCommand> opaqueQueue;
   std::vector<RenderCommand> transparentQueue;
-
   SceneData sceneData;
-  Shader *activeShader;
-
-  // RHI Device
+  Shader *activeShader = nullptr;
   RHI::IDevice *device = nullptr;
 
-  // Screen quad RHI resources
   RHI::BufferHandle screenQuadVB;
   RHI::VertexArrayHandle screenQuadVAO;
-  RHI::PipelineHandle screenQuadPipeline;
-
-  Shader *skyboxShader = nullptr;
-  SkyboxManager skyboxManager;
 
   DirectionalLight sunLight;
   std::vector<PointLightData> pointLights;
 
-  unsigned int iblIrradiance = 0;
-  unsigned int iblPrefilter = 0;
-  unsigned int iblBrdf = 0;
+  RHI::TextureHandle iblIrradiance;
+  RHI::TextureHandle iblPrefilter;
+  RHI::TextureHandle iblBrdf;
   bool useIBL = false;
 
   void initRenderData() {
@@ -66,10 +57,8 @@ private:
       return;
 
     struct QuadVertex {
-      float x, y;
-      float u, v;
+      float x, y, u, v;
     };
-
     std::vector<QuadVertex> quadVertices = {
         {-1.0f, 1.0f, 0.0f, 1.0f}, {-1.0f, -1.0f, 0.0f, 0.0f},
         {1.0f, -1.0f, 1.0f, 0.0f}, {-1.0f, 1.0f, 0.0f, 1.0f},
@@ -87,23 +76,12 @@ private:
     layout.attributes = {
         {0, RHI::VertexAttributeType::Float2, offsetof(QuadVertex, x), false},
         {1, RHI::VertexAttributeType::Float2, offsetof(QuadVertex, u), false}};
-
     screenQuadVAO =
         device->CreateVertexArray(screenQuadVB, RHI::BufferHandle{0}, layout);
-
-    RHI::PipelineDescriptor pipelineDesc;
-    pipelineDesc.topology = RHI::PrimitiveTopology::TriangleList;
-    pipelineDesc.rasterizer.cullMode = RHI::CullMode::None;
-    pipelineDesc.depthStencil.depthTestEnable = false;
-    pipelineDesc.depthStencil.depthWriteEnable = false;
-
-    if (!skyboxManager.Initialize()) {
-      std::cerr << "[Renderer] Failed to initialize SkyboxManager" << std::endl;
-    }
   }
 
 public:
-  Renderer() : activeShader(nullptr) {}
+  Renderer() = default;
 
   ~Renderer() {
     if (device) {
@@ -114,57 +92,19 @@ public:
     }
   }
 
-  void Init(RHI::IDevice *rhiDevice, Shader *defaultShader,
-            Shader *sbShader = nullptr) {
+  void Init(RHI::IDevice *rhiDevice, Shader *defaultShader) {
     device = rhiDevice;
     activeShader = defaultShader;
-    skyboxShader = sbShader;
-
     if (device) {
       device->SetClearColor({0.0f, 0.0f, 0.0f, 1.0f});
     }
-
     initRenderData();
-  }
-
-  // Legacy init for backwards compatibility
-  void Init(Shader *defaultShader, Shader *sbShader = nullptr) {
-    activeShader = defaultShader;
-    skyboxShader = sbShader;
-
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-
-    // Legacy OpenGL initialization
-    float quadVertices[] = {-1.0f, 1.0f,  0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 0.0f,
-                            1.0f,  -1.0f, 1.0f, 0.0f, -1.0f, 1.0f,  0.0f, 1.0f,
-                            1.0f,  -1.0f, 1.0f, 0.0f, 1.0f,  1.0f,  1.0f, 1.0f};
-
-    glGenVertexArrays(1, &legacyScreenQuadVAO);
-    glGenBuffers(1, &legacyScreenQuadVBO);
-    glBindVertexArray(legacyScreenQuadVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, legacyScreenQuadVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices,
-                 GL_STATIC_DRAW);
-
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                          (void *)0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                          (void *)(2 * sizeof(float)));
-
-    glBindVertexArray(0);
-
-    if (!skyboxManager.Initialize()) {
-      std::cerr << "[Renderer] Failed to initialize SkyboxManager" << std::endl;
-    }
   }
 
   RHI::IDevice *GetDevice() const { return device; }
 
-  void SetIBLMaps(unsigned int irradiance, unsigned int prefilter,
-                  unsigned int brdf) {
+  void SetIBLMaps(RHI::TextureHandle irradiance, RHI::TextureHandle prefilter,
+                  RHI::TextureHandle brdf) {
     iblIrradiance = irradiance;
     iblPrefilter = prefilter;
     iblBrdf = brdf;
@@ -178,7 +118,6 @@ public:
     sceneData.cameraPos = camPos;
     sceneData.lightPos = glm::vec3(2.0f, 4.0f, 3.0f);
     sceneData.lightColor = glm::vec3(1.0f);
-
     opaqueQueue.clear();
     transparentQueue.clear();
     pointLights.clear();
@@ -189,9 +128,8 @@ public:
   }
 
   void SubmitPointLight(const PointLightData &light) {
-    if (pointLights.size() < 4) {
+    if (pointLights.size() < 4)
       pointLights.push_back(light);
-    }
   }
 
   void Submit(const std::shared_ptr<Model> &model, const glm::mat4 &transform) {
@@ -199,7 +137,6 @@ public:
       const Mesh &meshRef = model->GetMesh(i);
       Mesh *meshPtr = const_cast<Mesh *>(&meshRef);
       Material *matPtr = meshPtr->GetMaterial().get();
-
       float dist = glm::length(sceneData.cameraPos - glm::vec3(transform[3]));
       opaqueQueue.emplace_back(meshPtr, matPtr, transform, dist);
     }
@@ -208,18 +145,21 @@ public:
   void SubmitMesh(const Mesh &mesh, const glm::mat4 &transform) {
     Mesh *meshPtr = const_cast<Mesh *>(&mesh);
     Material *matPtr = meshPtr->GetMaterial().get();
-
     float dist = glm::length(sceneData.cameraPos - glm::vec3(transform[3]));
     opaqueQueue.emplace_back(meshPtr, matPtr, transform, dist);
   }
 
   void EndScene() {
+    if (!device || !activeShader)
+      return;
+
     std::sort(opaqueQueue.begin(), opaqueQueue.end(),
               [](const RenderCommand &a, const RenderCommand &b) {
                 return a.distanceToCamera < b.distanceToCamera;
               });
 
-    activeShader->Use();
+    RHI::ShaderHandle shader = activeShader->GetHandle();
+
     activeShader->SetMat4("view", glm::value_ptr(sceneData.viewMatrix));
     activeShader->SetMat4("projection",
                           glm::value_ptr(sceneData.projectionMatrix));
@@ -235,8 +175,8 @@ public:
     activeShader->SetVec3("dirLight.color", sunLight.color.x, sunLight.color.y,
                           sunLight.color.z);
     activeShader->SetFloat("dirLight.intensity", sunLight.intensity);
-
-    activeShader->SetInt("numPointLights", (int)pointLights.size());
+    activeShader->SetInt("numPointLights",
+                         static_cast<int>(pointLights.size()));
 
     for (size_t i = 0; i < pointLights.size(); i++) {
       std::string base = "pointLights[" + std::to_string(i) + "]";
@@ -249,22 +189,14 @@ public:
       activeShader->SetFloat(base + ".radius", pointLights[i].radius);
     }
 
+    activeShader->SetBool("useIBL", useIBL);
     if (useIBL) {
-      activeShader->SetBool("useIBL", true);
-
-      glActiveTexture(GL_TEXTURE5);
-      glBindTexture(GL_TEXTURE_CUBE_MAP, iblIrradiance);
+      device->BindTexture(10, iblIrradiance);
+      device->BindTexture(11, iblPrefilter);
+      device->BindTexture(12, iblBrdf);
       activeShader->SetInt("irradianceMap", 10);
-
-      glActiveTexture(GL_TEXTURE6);
-      glBindTexture(GL_TEXTURE_CUBE_MAP, iblPrefilter);
       activeShader->SetInt("prefilterMap", 11);
-
-      glActiveTexture(GL_TEXTURE7);
-      glBindTexture(GL_TEXTURE_2D, iblBrdf);
       activeShader->SetInt("brdfLUT", 12);
-    } else {
-      activeShader->SetBool("useIBL", false);
     }
 
     for (const auto &cmd : opaqueQueue) {
@@ -272,125 +204,40 @@ public:
     }
   }
 
-  void DrawSkybox(unsigned int cubemapID, const glm::mat4 &view,
-                  const glm::mat4 &proj) {
-    if (!skyboxShader || !skyboxManager.IsInitialized()) {
+  void DrawScreenQuad(Shader &screenShader, RHI::TextureHandle texture) {
+    if (!device || !RHI::IsValid(screenQuadVAO))
       return;
-    }
 
-    glDepthFunc(GL_LEQUAL);
-    GLboolean cullFaceWasEnabled = glIsEnabled(GL_CULL_FACE);
-    glDisable(GL_CULL_FACE);
+    screenShader.SetInt("screenTexture", 0);
+    device->BindTexture(0, texture);
+    device->BindVertexArray(screenQuadVAO);
 
-    skyboxShader->Use();
-    skyboxShader->SetMat4("view", glm::value_ptr(view));
-    skyboxShader->SetMat4("projection", glm::value_ptr(proj));
-    skyboxShader->SetInt("skybox", 0);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
-
-    skyboxManager.Render();
-
-    glDepthFunc(GL_LESS);
-    if (cullFaceWasEnabled)
-      glEnable(GL_CULL_FACE);
-  }
-
-  void SetSkyboxShader(Shader *s) { skyboxShader = s; }
-
-  void DrawScreenQuad(Shader &screenShader, unsigned int textureID) {
-    if (device && RHI::IsValid(screenQuadVAO)) {
-      // RHI path
-      screenShader.Use();
-      screenShader.SetInt("screenTexture", 0);
-
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, textureID);
-
-      device->BindVertexArray(screenQuadVAO);
-
-      RHI::DrawCommand cmd;
-      cmd.vertexCount = 6;
-      cmd.instanceCount = 1;
-      cmd.firstVertex = 0;
-      device->Draw(cmd);
-    } else {
-      // Legacy OpenGL path
-      glDisable(GL_DEPTH_TEST);
-
-      screenShader.Use();
-      screenShader.SetInt("screenTexture", 0);
-
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, textureID);
-
-      glBindVertexArray(legacyScreenQuadVAO);
-      glDrawArrays(GL_TRIANGLES, 0, 6);
-      glBindVertexArray(0);
-
-      glEnable(GL_DEPTH_TEST);
-    }
+    RHI::DrawCommand cmd;
+    cmd.vertexCount = 6;
+    cmd.instanceCount = 1;
+    device->Draw(cmd);
   }
 
   void DrawScreenQuad() {
-    if (device && RHI::IsValid(screenQuadVAO)) {
-      device->BindVertexArray(screenQuadVAO);
-      RHI::DrawCommand cmd;
-      cmd.vertexCount = 6;
-      cmd.instanceCount = 1;
-      device->Draw(cmd);
-    } else {
-      glDisable(GL_DEPTH_TEST);
-      glBindVertexArray(legacyScreenQuadVAO);
-      glDrawArrays(GL_TRIANGLES, 0, 6);
-      glBindVertexArray(0);
-      glEnable(GL_DEPTH_TEST);
-    }
-  }
+    if (!device || !RHI::IsValid(screenQuadVAO))
+      return;
 
-  void DebugCubemap(unsigned int cubemapID, const char *name) {
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
-
-    GLint width, height, format;
-    glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0,
-                             GL_TEXTURE_WIDTH, &width);
-    glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0,
-                             GL_TEXTURE_HEIGHT, &height);
-    glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0,
-                             GL_TEXTURE_INTERNAL_FORMAT, &format);
-
-    std::cout << "[DEBUG] " << name << ":" << std::endl;
-    std::cout << "  - Size: " << width << "x" << height << std::endl;
-    std::cout << "  - Format: 0x" << std::hex << format << std::dec
-              << std::endl;
-
-    for (int i = 0; i < 6; i++) {
-      GLint faceWidth;
-      glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0,
-                               GL_TEXTURE_WIDTH, &faceWidth);
-      if (faceWidth == 0) {
-        std::cerr << "  - ERROR: Face " << i << " was not created!"
-                  << std::endl;
-      }
-    }
-
-    GLint maxLevel;
-    glGetTexParameteriv(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, &maxLevel);
-    std::cout << "  - Max Mip Level: " << maxLevel << std::endl;
-
-    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    device->BindVertexArray(screenQuadVAO);
+    RHI::DrawCommand cmd;
+    cmd.vertexCount = 6;
+    cmd.instanceCount = 1;
+    device->Draw(cmd);
   }
 
 private:
-  // Legacy OpenGL resources (for backwards compatibility)
-  unsigned int legacyScreenQuadVAO = 0;
-  unsigned int legacyScreenQuadVBO = 0;
-
   void RenderMesh(const RenderCommand &cmd) {
-    if (cmd.material) {
-      cmd.material->Apply(activeShader->GetProgramID());
+    if (!device || !activeShader)
+      return;
 
+    RHI::ShaderHandle shader = activeShader->GetHandle();
+
+    if (cmd.material) {
+      cmd.material->Apply(device, shader);
       activeShader->SetBool("hasTextureDiffuse",
                             cmd.material->HasTextureType(TextureType::DIFFUSE));
       activeShader->SetBool("hasTextureNormal",
@@ -407,9 +254,12 @@ private:
 
     activeShader->SetMat4("model", glm::value_ptr(cmd.transform));
 
-    glBindVertexArray(cmd.mesh->GetVAO());
-    glDrawElements(GL_TRIANGLES, cmd.mesh->GetIndexCount(), GL_UNSIGNED_INT, 0);
-    glBindVertexArray(0);
+    device->BindVertexArray(cmd.mesh->GetVAO());
+    RHI::DrawIndexedCommand drawCmd;
+    drawCmd.indexCount = cmd.mesh->GetIndexCount();
+    drawCmd.instanceCount = 1;
+    drawCmd.indexType = RHI::IndexType::UInt32;
+    device->DrawIndexed(drawCmd);
   }
 };
 
