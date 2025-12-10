@@ -191,36 +191,22 @@ public:
 
     // Main Loop
     while (!window->ShouldClose()) {
-      // Check if using Vulkan to use proper frame management
-      if (device->GetAPI() == API::Vulkan) {
-        auto *vkDevice = dynamic_cast<VulkanDevice *>(device.get());
-        if (vkDevice) {
-          vkDevice->BeginFrame();
-          device->SetClearColor({0.1f, 0.1f, 0.15f, 1.0f});
-          device->BindPipeline(pipeline);
-          device->BindVertexArray(vao);
+      if (!device->BeginFrame())
+        continue;
 
-          DrawIndexedCommand drawCmd;
-          drawCmd.indexCount = triangleIndices.size();
-          drawCmd.instanceCount = 1;
-          device->DrawIndexed(drawCmd);
+      device->BindFramebuffer(FramebufferHandle{0});
+      device->SetClearColor({0.1f, 0.1f, 0.15f, 1.0f});
+      device->Clear(true, true, false);
 
-          vkDevice->EndFrame();
-        }
-      } else {
-        // OpenGL path
-        device->BindFramebuffer(FramebufferHandle{0});
-        device->SetClearColor({0.1f, 0.1f, 0.15f, 1.0f});
-        device->Clear(true, true, false);
+      device->BindPipeline(pipeline);
+      device->BindVertexArray(vao);
 
-        device->BindPipeline(pipeline);
-        device->BindVertexArray(vao);
+      DrawIndexedCommand drawCmd;
+      drawCmd.indexCount = triangleIndices.size();
+      drawCmd.instanceCount = 1;
+      device->DrawIndexed(drawCmd);
 
-        DrawIndexedCommand drawCmd;
-        drawCmd.indexCount = triangleIndices.size();
-        drawCmd.instanceCount = 1;
-        device->DrawIndexed(drawCmd);
-      }
+      device->EndFrame();
 
       // Swap buffers and poll events
       window->OnUpdate();

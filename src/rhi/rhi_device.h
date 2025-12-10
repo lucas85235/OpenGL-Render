@@ -33,6 +33,17 @@ public:
   virtual void Shutdown() = 0;
 
   /**
+   * @brief Inicia um novo frame de renderização
+   * @return true se o frame foi iniciado com sucesso
+   */
+  virtual bool BeginFrame() = 0;
+
+  /**
+   * @brief Finaliza o frame atual e apresenta na tela
+   */
+  virtual void EndFrame() = 0;
+
+  /**
    * @brief Retorna a API gráfica em uso
    */
   virtual API GetAPI() const = 0;

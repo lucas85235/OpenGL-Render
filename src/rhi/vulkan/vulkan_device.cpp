@@ -27,10 +27,12 @@ bool VulkanDevice::Initialize() {
 }
 
 void VulkanDevice::Shutdown() {
+  if (device == VK_NULL_HANDLE)
+    return;
+
   std::cout << "[Vulkan] Shutting down device..." << std::endl;
   WaitIdle();
 
-  // Cleanup sync objects
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
     vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
     vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
@@ -51,7 +53,6 @@ void VulkanDevice::Shutdown() {
 
   vkDestroySwapchainKHR(device, swapChain, nullptr);
 
-  // Cleanup descriptors
   if (descriptorPool != VK_NULL_HANDLE)
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
   if (descriptorSetLayout != VK_NULL_HANDLE)
@@ -62,7 +63,6 @@ void VulkanDevice::Shutdown() {
     vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
   }
 
-  // Cleanup resources
   for (auto &pair : buffers) {
     vkDestroyBuffer(device, pair.second.buffer, nullptr);
     vkFreeMemory(device, pair.second.memory, nullptr);
@@ -89,13 +89,22 @@ void VulkanDevice::Shutdown() {
   }
 
   vkDestroyDevice(device, nullptr);
+  device = VK_NULL_HANDLE;
 
-  if (enableValidationLayers) {
+  if (enableValidationLayers && debugMessenger != VK_NULL_HANDLE) {
     DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+    debugMessenger = VK_NULL_HANDLE;
   }
 
-  vkDestroySurfaceKHR(instance, surface, nullptr);
-  vkDestroyInstance(instance, nullptr);
+  if (surface != VK_NULL_HANDLE) {
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+    surface = VK_NULL_HANDLE;
+  }
+
+  if (instance != VK_NULL_HANDLE) {
+    vkDestroyInstance(instance, nullptr);
+    instance = VK_NULL_HANDLE;
+  }
 
   std::cout << "[Vulkan] Device shutdown complete" << std::endl;
 }
@@ -1675,7 +1684,7 @@ void VulkanDevice::WaitIdle() {
   }
 }
 
-void VulkanDevice::BeginFrame() {
+bool VulkanDevice::BeginFrame() {
   vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE,
                   UINT64_MAX);
 
@@ -1684,8 +1693,7 @@ void VulkanDevice::BeginFrame() {
       VK_NULL_HANDLE, &currentImageIndex);
 
   if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-    // Recreate swap chain
-    return;
+    return false;
   }
 
   vkResetFences(device, 1, &inFlightFences[currentFrame]);
@@ -1723,6 +1731,8 @@ void VulkanDevice::BeginFrame() {
   scissor.offset = {0, 0};
   scissor.extent = swapChainExtent;
   vkCmdSetScissor(commandBuffers[currentFrame], 0, 1, &scissor);
+
+  return true;
 }
 
 void VulkanDevice::EndFrame() {
