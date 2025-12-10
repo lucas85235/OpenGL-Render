@@ -139,6 +139,9 @@ private:
   std::vector<VkDeviceMemory> uniformBuffersMemory;
   std::vector<void *> uniformBuffersMapped;
 
+  // Cached UBO state for updates
+  UniformBufferObject cachedUbo{};
+
   void createDescriptorSetLayout();
   void createUniformBuffers();
   void createDescriptorPool();
