@@ -225,14 +225,6 @@ struct PipelineDescriptor {
   PrimitiveTopology topology = PrimitiveTopology::TriangleList;
 };
 
-struct FramebufferDescriptor {
-  uint32_t width;
-  uint32_t height;
-  std::vector<TextureFormat> colorFormats;
-  TextureFormat depthFormat = TextureFormat::Depth24Stencil8;
-  bool hasDepth = true;
-};
-
 struct DrawCommand {
   uint32_t vertexCount;
   uint32_t instanceCount = 1;
@@ -249,6 +241,7 @@ struct DrawIndexedCommand {
   IndexType indexType = IndexType::UInt32;
 };
 
+// CubemapFace moved after handles to resolve forward declaration
 // ============================================================================
 // DEVICE INFO
 // ============================================================================
@@ -300,6 +293,34 @@ inline bool IsValid(ShaderHandle h) { return h.id != 0; }
 inline bool IsValid(PipelineHandle h) { return h.id != 0; }
 inline bool IsValid(FramebufferHandle h) { return h.id != 0; }
 inline bool IsValid(VertexArrayHandle h) { return h.id != 0; }
+
+// ============================================================================
+// RENDER-TO-TEXTURE SUPPORT
+// ============================================================================
+
+enum class CubemapFace {
+  PositiveX = 0,
+  NegativeX = 1,
+  PositiveY = 2,
+  NegativeY = 3,
+  PositiveZ = 4,
+  NegativeZ = 5
+};
+
+struct RenderTargetAttachment {
+  TextureHandle texture;
+  uint32_t mipLevel = 0;
+  uint32_t layer = 0;
+  CubemapFace cubeFace = CubemapFace::PositiveX;
+};
+
+struct FramebufferDescriptor {
+  uint32_t width = 0;
+  uint32_t height = 0;
+  std::vector<RenderTargetAttachment> colorAttachments;
+  RenderTargetAttachment depthAttachment;
+  bool hasDepth = false;
+};
 
 } // namespace RHI
 

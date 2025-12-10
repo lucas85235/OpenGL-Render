@@ -781,30 +781,51 @@ OpenGLDevice::CreateFramebuffer(const FramebufferDescriptor &desc) {
   glGenFramebuffers(1, &fb.fbo);
   glBindFramebuffer(GL_FRAMEBUFFER, fb.fbo);
 
-  for (size_t i = 0; i < desc.colorFormats.size(); i++) {
-    TextureDescriptor texDesc;
-    texDesc.type = TextureType::Texture2D;
-    texDesc.format = desc.colorFormats[i];
-    texDesc.width = desc.width;
-    texDesc.height = desc.height;
-    texDesc.generateMipmaps = false;
+  // Attach color textures from RenderTargetAttachment
+  for (size_t i = 0; i < desc.colorAttachments.size(); i++) {
+    const auto &attachment = desc.colorAttachments[i];
+    auto texIt = textures.find(attachment.texture.id);
+    if (texIt == textures.end())
+      continue;
 
-    TextureHandle colorTex = CreateTexture(texDesc);
+    GLenum glAttachment = GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(i);
 
-    FramebufferAttachment attachment = static_cast<FramebufferAttachment>(
+    if (texIt->second.target == GL_TEXTURE_CUBE_MAP) {
+      // Attach cubemap face
+      GLenum faceTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X +
+                          static_cast<int>(attachment.cubeFace);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, glAttachment, faceTarget,
+                             texIt->second.id, attachment.mipLevel);
+    } else {
+      glFramebufferTexture2D(GL_FRAMEBUFFER, glAttachment, texIt->second.target,
+                             texIt->second.id, attachment.mipLevel);
+    }
+
+    FramebufferAttachment rhiAttachment = static_cast<FramebufferAttachment>(
         static_cast<int>(FramebufferAttachment::Color0) + i);
-
-    AttachTexture(FramebufferHandle{nextId}, attachment, colorTex);
-    fb.attachments[attachment] = colorTex;
+    fb.attachments[rhiAttachment] = attachment.texture;
   }
 
+  // Attach depth if specified
   if (desc.hasDepth) {
-    glGenRenderbuffers(1, &fb.rbo);
-    glBindRenderbuffer(GL_RENDERBUFFER, fb.rbo);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, desc.width,
-                          desc.height);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
-                              GL_RENDERBUFFER, fb.rbo);
+    if (IsValid(desc.depthAttachment.texture)) {
+      auto texIt = textures.find(desc.depthAttachment.texture.id);
+      if (texIt != textures.end()) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                               texIt->second.target, texIt->second.id,
+                               desc.depthAttachment.mipLevel);
+        fb.attachments[FramebufferAttachment::Depth] =
+            desc.depthAttachment.texture;
+      }
+    } else {
+      // Create renderbuffer for depth
+      glGenRenderbuffers(1, &fb.rbo);
+      glBindRenderbuffer(GL_RENDERBUFFER, fb.rbo);
+      glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, desc.width,
+                            desc.height);
+      glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                GL_RENDERBUFFER, fb.rbo);
+    }
   }
 
   if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
