@@ -97,6 +97,13 @@ private:
   std::vector<VkFramebuffer> swapChainFramebuffers;
 
   VkRenderPass renderPass = VK_NULL_HANDLE;
+
+  // Depth buffer resources
+  VkImage depthImage = VK_NULL_HANDLE;
+  VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
+  VkImageView depthImageView = VK_NULL_HANDLE;
+  VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
+
   VkCommandPool commandPool = VK_NULL_HANDLE;
   std::vector<VkCommandBuffer> commandBuffers;
 
@@ -157,6 +164,7 @@ private:
   void createLogicalDevice();
   void createSwapChain();
   void createImageViews();
+  void createDepthResources();
   void createRenderPass();
   void createFramebuffers();
   void createCommandPool();

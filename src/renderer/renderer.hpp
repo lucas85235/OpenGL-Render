@@ -118,6 +118,8 @@ public:
       pipelineDesc.depthStencil.depthTestEnable = true;
       pipelineDesc.depthStencil.depthWriteEnable = true;
       pipelineDesc.depthStencil.depthCompareOp = RHI::CompareOp::Less;
+      pipelineDesc.rasterizer.cullMode = RHI::CullMode::Back;
+      pipelineDesc.rasterizer.frontFace = RHI::FrontFace::Clockwise;
 
       mainPipeline = device->CreatePipeline(
           pipelineDesc, activeShader->GetHandle(), meshLayout);
