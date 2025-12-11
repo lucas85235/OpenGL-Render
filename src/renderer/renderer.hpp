@@ -113,13 +113,11 @@ public:
 
       RHI::PipelineDescriptor pipelineDesc;
       pipelineDesc.topology = RHI::PrimitiveTopology::TriangleList;
-      pipelineDesc.rasterizer.cullMode = RHI::CullMode::Back;
-      pipelineDesc.rasterizer.frontFace = RHI::FrontFace::CounterClockwise;
       pipelineDesc.depthStencil.depthTestEnable = true;
       pipelineDesc.depthStencil.depthWriteEnable = true;
       pipelineDesc.depthStencil.depthCompareOp = RHI::CompareOp::Less;
       pipelineDesc.rasterizer.cullMode = RHI::CullMode::Back;
-      pipelineDesc.rasterizer.frontFace = RHI::FrontFace::Clockwise;
+      pipelineDesc.rasterizer.frontFace = RHI::FrontFace::CounterClockwise;
 
       mainPipeline = device->CreatePipeline(
           pipelineDesc, activeShader->GetHandle(), meshLayout);

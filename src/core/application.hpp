@@ -40,7 +40,7 @@ private:
   std::vector<std::shared_ptr<Material>> materials;
 
   // Game State
-  glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 60.0f);
+  glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
 
   // Input Control
   bool mKeyPressed = false;
