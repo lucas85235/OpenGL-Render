@@ -28,7 +28,7 @@ private:
     const aiScene *scene = importer.ReadFile(
         path, aiProcess_Triangulate | aiProcess_CalcTangentSpace |
                   aiProcess_GenNormals | aiProcess_OptimizeMeshes |
-                  aiProcess_FlipUVs | aiProcess_GenUVCoords);
+                  aiProcess_GenUVCoords);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE ||
         !scene->mRootNode) {
@@ -175,7 +175,7 @@ private:
                                    : (aiTex->mWidth * aiTex->mHeight * 4);
 
           TextureParams params;
-          params.flipVertically = false;
+          params.flipVertically = true;
 
           // LoadFromMemory uses stbi_load_from_memory which decompresses the
           // image data
@@ -193,7 +193,10 @@ private:
         }
       } else {
         std::string fullPath = directory + '/' + filename;
-        auto tex = TextureManager::GetInstance().LoadTexture(fullPath, texType);
+        TextureParams params;
+        params.flipVertically = true;
+        auto tex = TextureManager::GetInstance().LoadTexture(fullPath, texType,
+                                                             params);
         if (tex) {
           targetMat->AddTexture(tex);
         }
@@ -218,6 +221,17 @@ public:
   void SetMaterialAll(std::shared_ptr<Material> material) {
     for (auto &mesh : meshes) {
       mesh.SetMaterial(material);
+    }
+  }
+
+  void OverrideTexture(TextureType type, std::shared_ptr<Texture> texture) {
+    for (auto &mesh : meshes) {
+      auto mat = mesh.GetMaterial();
+      if (mat) {
+        mat->Clear(); // Remove existing textures to ensure binding order/slots
+                      // are reset
+        mat->AddTexture(texture);
+      }
     }
   }
 };

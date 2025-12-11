@@ -89,6 +89,9 @@ private:
       return false;
     }
 
+    // Initialize TextureManager with device
+    TextureManager::GetInstance().SetDevice(rhiDevice.get());
+
     auto info = rhiDevice->GetDeviceInfo();
     std::cout << "[RHI] Renderer: " << info.rendererName << std::endl;
     std::cout << "[RHI] Version: " << info.apiVersion << std::endl;
@@ -98,21 +101,27 @@ private:
         this->fb->Resize(w, h);
     });
 
-    // Compile Shaders - Use unified SPIR-V shaders for cross-platform support
+    // Compile Shaders
     pbrShader = std::make_unique<Shader>(rhiDevice.get());
 
-    // Try unified SPIR-V shaders first, fallback to legacy GLSL
-    if (!pbrShader->CompileFromSPIRV(
-            FS::GetPath("shaders/unified/pbr.vert.spv"),
-            FS::GetPath("shaders/unified/pbr.frag.spv"))) {
-      std::cout << "[App] SPIR-V shaders not available, falling back to GLSL"
-                << std::endl;
+    if (api == RHI::API::Vulkan) {
+      // Vulkan: Use SPIR-V shaders
+      if (!pbrShader->CompileFromSPIRV(
+              FS::GetPath("shaders/unified/pbr.vert.spv"),
+              FS::GetPath("shaders/unified/pbr.frag.spv"))) {
+        std::cerr << "[App] Failed to compile Vulkan SPIR-V shaders"
+                  << std::endl;
+        return false;
+      }
+      std::cout << "[App] Using Vulkan SPIR-V shaders" << std::endl;
+    } else {
+      // OpenGL: Use GLSL shaders
       if (!pbrShader->CompileFromFile(FS::GetPath("shaders/pbr.vert"),
                                       FS::GetPath("shaders/pbr.frag"))) {
-        std::cerr << "[App] Failed to compile PBR shader" << std::endl;
+        std::cerr << "[App] Failed to compile OpenGL GLSL shaders" << std::endl;
+        return false;
       }
-    } else {
-      std::cout << "[App] Using unified SPIR-V shaders" << std::endl;
+      std::cout << "[App] Using OpenGL GLSL shaders" << std::endl;
     }
 
     // screenShader = std::make_unique<Shader>(rhiDevice.get());
@@ -156,17 +165,16 @@ private:
     try {
       auto model = std::make_shared<Model>(
           rhiDevice.get(), "models/DamagedHelmet/DamagedHelmet.glb");
-
       if (model->GetMeshCount() > 0)
         materials.push_back(model->GetMesh(0).GetMaterial());
 
       auto renderComp = playerEntity->AddComponent<MeshRenderer>(model);
-      renderComp->SetMaterial(materials[0]);
+      renderComp->SetMaterial(materials[5]);
     } catch (...) {
       std::cerr << "[App] Error loading model" << std::endl;
     }
 
-    playerEntity->AddComponent<RotatorScript>(glm::vec3(0, 30, 0));
+    playerEntity->AddComponent<RotatorScript>(glm::vec3(0, 0, 30));
     playerEntity->transform.Position = glm::vec3(0, 0.5f, 0);
     playerEntity->transform.Rotation = glm::vec3(90, 0, 0);
 
