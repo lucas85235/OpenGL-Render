@@ -189,8 +189,10 @@ struct SamplerDescriptor {
 
 struct ShaderDescriptor {
   ShaderStage stage;
-  std::string source;
+  std::string source;                // GLSL source (for legacy/direct OpenGL)
+  std::vector<uint32_t> spirvBinary; // SPIR-V bytecode (for unified pipeline)
   std::string entryPoint = "main";
+  bool useSPIRV = false; // If true, use spirvBinary instead of source
 };
 
 struct RasterizerState {

@@ -39,6 +39,29 @@ find_package(glm REQUIRED)
 # ASSIMP
 find_package(assimp REQUIRED)
 
+# SPIRV-Cross (Optional - for cross-compiling SPIR-V to GLSL)
+# Install with: sudo apt install libspirv-cross-c-shared-dev
+# Or build from source: https://github.com/KhronosGroup/SPIRV-Cross
+option(USE_SPIRV_CROSS "Enable SPIRV-Cross for shader cross-compilation" OFF)
+if(USE_SPIRV_CROSS)
+    find_package(spirv_cross_core QUIET)
+    find_package(spirv_cross_glsl QUIET)
+    if(spirv_cross_core_FOUND AND spirv_cross_glsl_FOUND)
+        message(STATUS "SPIRV-Cross found - shader cross-compilation enabled")
+        add_compile_definitions(HAS_SPIRV_CROSS=1)
+    else()
+        # Try pkg-config fallback
+        pkg_check_modules(SPIRV_CROSS spirv-cross-c-shared)
+        if(SPIRV_CROSS_FOUND)
+            message(STATUS "SPIRV-Cross found via pkg-config")
+            add_compile_definitions(HAS_SPIRV_CROSS=1)
+        else()
+            message(WARNING "SPIRV-Cross not found. Install libspirv-cross-c-shared-dev or disable USE_SPIRV_CROSS")
+            set(USE_SPIRV_CROSS OFF)
+        endif()
+    endif()
+endif()
+
 # Threads & DL (Necessário para C++)
 find_package(Threads REQUIRED)
 
@@ -139,6 +162,19 @@ target_link_libraries(${EXECUTABLE_NAME} PRIVATE
     Threads::Threads
     ${CMAKE_DL_LIBS}
 )
+
+# SPIRV-Cross conditional linking
+if(USE_SPIRV_CROSS)
+    if(spirv_cross_core_FOUND AND spirv_cross_glsl_FOUND)
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE
+            spirv-cross-core
+            spirv-cross-glsl
+        )
+    elseif(SPIRV_CROSS_FOUND)
+        target_include_directories(${EXECUTABLE_NAME} PRIVATE ${SPIRV_CROSS_INCLUDE_DIRS})
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${SPIRV_CROSS_LIBRARIES})
+    endif()
+endif()
 
 # ==========================================
 # Pós-Build (Criação da pasta models)

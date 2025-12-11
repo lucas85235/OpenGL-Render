@@ -70,6 +70,65 @@ public:
     return CompileFromSource(vertexCode.c_str(), fragmentCode.c_str());
   }
 
+  // Load SPIR-V binary from file
+  static std::vector<uint32_t> LoadSPIRVFile(const std::string &path) {
+    std::ifstream file(path, std::ios::ate | std::ios::binary);
+    if (!file.is_open()) {
+      std::cerr << "[Shader] Failed to open SPIR-V file: " << path << std::endl;
+      return {};
+    }
+
+    size_t fileSize = static_cast<size_t>(file.tellg());
+    std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+
+    file.seekg(0);
+    file.read(reinterpret_cast<char *>(buffer.data()), fileSize);
+    file.close();
+
+    std::cout << "[Shader] Loaded SPIR-V: " << path << " (" << buffer.size()
+              << " words)" << std::endl;
+    return buffer;
+  }
+
+  // Compile shader from SPIR-V binary files (unified pipeline)
+  bool CompileFromSPIRV(const std::string &vertSpvPath,
+                        const std::string &fragSpvPath) {
+    if (!device) {
+      std::cerr << "[Shader] No device set" << std::endl;
+      return false;
+    }
+
+    auto vertBinary = LoadSPIRVFile(vertSpvPath);
+    auto fragBinary = LoadSPIRVFile(fragSpvPath);
+
+    if (vertBinary.empty() || fragBinary.empty()) {
+      std::cerr << "[Shader] Failed to load SPIR-V files" << std::endl;
+      return false;
+    }
+
+    RHI::ShaderDescriptor vertDesc;
+    vertDesc.stage = RHI::ShaderStage::Vertex;
+    vertDesc.spirvBinary = std::move(vertBinary);
+    vertDesc.useSPIRV = true;
+
+    RHI::ShaderDescriptor fragDesc;
+    fragDesc.stage = RHI::ShaderStage::Fragment;
+    fragDesc.spirvBinary = std::move(fragBinary);
+    fragDesc.useSPIRV = true;
+
+    std::vector<RHI::ShaderDescriptor> stages = {vertDesc, fragDesc};
+
+    shaderHandle = device->CreateShader(stages);
+    if (!RHI::IsValid(shaderHandle)) {
+      std::cerr << "[Shader] Failed to create shader from SPIR-V" << std::endl;
+      return false;
+    }
+
+    compiled = true;
+    std::cout << "[Shader] SPIR-V shader compiled successfully" << std::endl;
+    return true;
+  }
+
   RHI::ShaderHandle GetHandle() const { return shaderHandle; }
   bool IsCompiled() const { return compiled; }
   RHI::IDevice *GetDevice() const { return device; }

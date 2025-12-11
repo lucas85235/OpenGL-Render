@@ -1,4 +1,5 @@
 #include "opengl_device.hpp"
+#include "../shader_cross_compiler.hpp"
 #include <iostream>
 
 namespace RHI {
@@ -8,6 +9,18 @@ OpenGLDevice::~OpenGLDevice() { Shutdown(); }
 bool OpenGLDevice::Initialize() {
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
+
+  // Enable Vulkan-compatible depth range [0,1] for unified shaders
+  // This allows SPIR-V shaders written for Vulkan to work correctly in OpenGL
+  if (GLEW_ARB_clip_control) {
+    glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+    std::cout << "[OpenGL] Depth range set to [0,1] (Vulkan-compatible)"
+              << std::endl;
+  } else {
+    std::cout << "[OpenGL] Warning: ARB_clip_control not available"
+              << std::endl;
+  }
+
   std::cout << "[OpenGL] Device initialized" << std::endl;
   return true;
 }
@@ -677,8 +690,42 @@ OpenGLDevice::CreateShader(const std::vector<ShaderDescriptor> &stages) {
   std::vector<GLuint> compiledStages;
 
   for (const auto &stage : stages) {
+    std::string glslSource = stage.source;
+
+    // If SPIR-V provided, transpile to GLSL via ShaderCrossCompiler
+    if (stage.useSPIRV && !stage.spirvBinary.empty()) {
+#if SPIRV_CROSS_AVAILABLE
+      ShaderStageType stageType = ShaderStageType::Vertex;
+      if (stage.stage == ShaderStage::Fragment) {
+        stageType = ShaderStageType::Fragment;
+      } else if (stage.stage == ShaderStage::Geometry) {
+        stageType = ShaderStageType::Geometry;
+      } else if (stage.stage == ShaderStage::Compute) {
+        stageType = ShaderStageType::Compute;
+      }
+
+      auto result = ShaderCrossCompiler::Process(
+          stage.spirvBinary, RenderAPI::OpenGL, stageType, 450);
+
+      if (!result.success) {
+        std::cerr << "[OpenGL] SPIR-V transpilation failed: "
+                  << result.errorMessage << std::endl;
+        for (GLuint s : compiledStages)
+          glDeleteShader(s);
+        return ShaderHandle{0};
+      }
+      glslSource = result.glslSource;
+      std::cout << "[OpenGL] Transpiled SPIR-V to GLSL 450" << std::endl;
+#else
+      std::cerr
+          << "[OpenGL] SPIRV-Cross not available, cannot use SPIR-V shaders"
+          << std::endl;
+      return ShaderHandle{0};
+#endif
+    }
+
     GLuint compiled =
-        CompileShaderStage(stage.source, ToGLShaderStage(stage.stage));
+        CompileShaderStage(glslSource, ToGLShaderStage(stage.stage));
     if (compiled == 0) {
       for (GLuint s : compiledStages)
         glDeleteShader(s);

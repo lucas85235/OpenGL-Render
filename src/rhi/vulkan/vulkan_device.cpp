@@ -1384,10 +1384,32 @@ ShaderHandle
 VulkanDevice::CreateShader(const std::vector<ShaderDescriptor> &stages) {
   VulkanShader vkShader{};
 
-  std::vector<uint32_t> vertCode =
-      readSpirvFile("shaders/vulkan/cube.vert.spv");
-  std::vector<uint32_t> fragCode =
-      readSpirvFile("shaders/vulkan/cube.frag.spv");
+  std::vector<uint32_t> vertCode;
+  std::vector<uint32_t> fragCode;
+
+  // Extract SPIR-V from descriptors or fallback to file loading
+  for (const auto &stage : stages) {
+    if (stage.useSPIRV && !stage.spirvBinary.empty()) {
+      // Use SPIR-V directly from descriptor
+      if (stage.stage == ShaderStage::Vertex) {
+        vertCode = stage.spirvBinary;
+        std::cout << "[Vulkan] Using SPIR-V from descriptor (vertex)"
+                  << std::endl;
+      } else if (stage.stage == ShaderStage::Fragment) {
+        fragCode = stage.spirvBinary;
+        std::cout << "[Vulkan] Using SPIR-V from descriptor (fragment)"
+                  << std::endl;
+      }
+    }
+  }
+
+  // Fallback: load from files if descriptors didn't provide SPIR-V
+  if (vertCode.empty()) {
+    vertCode = readSpirvFile("shaders/vulkan/cube.vert.spv");
+  }
+  if (fragCode.empty()) {
+    fragCode = readSpirvFile("shaders/vulkan/cube.frag.spv");
+  }
 
   if (vertCode.empty() || fragCode.empty()) {
     std::cerr << "[Vulkan] Failed to load SPIR-V shader files" << std::endl;
@@ -1396,7 +1418,7 @@ VulkanDevice::CreateShader(const std::vector<ShaderDescriptor> &stages) {
     return ShaderHandle{0};
   }
 
-  std::cout << "[Vulkan] Loaded SPIR-V shaders from files" << std::endl;
+  std::cout << "[Vulkan] Loaded SPIR-V shaders successfully" << std::endl;
 
   VkShaderModuleCreateInfo vertInfo{};
   vertInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -1888,9 +1910,6 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
     cachedUbo.lightDir[0] = value[0];
     cachedUbo.lightDir[1] = value[1];
     cachedUbo.lightDir[2] = value[2];
-    std::cout << "[UBO] dirLight.direction: (" << value[0] << ", " << value[1]
-              << ", " << value[2] << ") intensity=" << cachedUbo.lightDir[3]
-              << std::endl;
     updated = true;
   } else if ((name.find("lightColor") != std::string::npos ||
               name.find("dirLight.color") != std::string::npos) &&

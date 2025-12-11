@@ -138,10 +138,18 @@ public:
   void BeginScene(const glm::mat4 &view, const glm::mat4 &proj,
                   const glm::vec3 &camPos) {
     sceneData.viewMatrix = view;
-    sceneData.projectionMatrix = proj;
     sceneData.cameraPos = camPos;
     sceneData.lightPos = glm::vec3(2.0f, 4.0f, 3.0f);
     sceneData.lightColor = glm::vec3(1.0f);
+
+    // Flip Y-axis for Vulkan (Vulkan has Y-down, OpenGL has Y-up)
+    // This allows the same projection matrix to work on both APIs
+    glm::mat4 projAdjusted = proj;
+    if (device && device->GetAPI() == RHI::API::Vulkan) {
+      projAdjusted[1][1] *= -1.0f;
+    }
+    sceneData.projectionMatrix = projAdjusted;
+
     opaqueQueue.clear();
     transparentQueue.clear();
     pointLights.clear();
