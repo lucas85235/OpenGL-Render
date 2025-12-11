@@ -31,6 +31,32 @@ bool VulkanDevice::Initialize() {
   createCommandBuffers();
   createSyncObjects();
 
+  // Initialize default material (gold-ish) and light values
+  cachedUbo.materialColor[0] = 1.0f;   // Albedo R
+  cachedUbo.materialColor[1] = 0.765f; // Albedo G
+  cachedUbo.materialColor[2] = 0.336f; // Albedo B
+  cachedUbo.materialColor[3] = 1.0f;   // Metallic
+
+  cachedUbo.materialProps[0] = 0.3f; // Roughness
+  cachedUbo.materialProps[1] = 1.0f; // AO
+  cachedUbo.materialProps[2] = 0.0f; // Emission strength
+  cachedUbo.materialProps[3] = 0.0f; // Unused
+
+  cachedUbo.lightDir[0] = -0.5f; // Light direction X
+  cachedUbo.lightDir[1] = -1.0f; // Light direction Y
+  cachedUbo.lightDir[2] = -0.5f; // Light direction Z
+  cachedUbo.lightDir[3] = 2.0f;  // Light intensity
+
+  cachedUbo.lightColor[0] = 1.0f;  // Light color R
+  cachedUbo.lightColor[1] = 0.95f; // Light color G
+  cachedUbo.lightColor[2] = 0.9f;  // Light color B
+  cachedUbo.lightColor[3] = 1.0f;  // Unused
+
+  cachedUbo.viewPos[0] = 0.0f; // View position X
+  cachedUbo.viewPos[1] = 0.0f; // View position Y
+  cachedUbo.viewPos[2] = 6.0f; // View position Z
+  cachedUbo.viewPos[3] = 1.0f; // Unused
+
   std::cout << "[Vulkan] Device initialized successfully" << std::endl;
   return true;
 }
@@ -1736,17 +1762,68 @@ void VulkanDevice::BindSampler(uint32_t slot, SamplerHandle sampler) {
 
 void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
                               int value) {
-  // Vulkan uses push constants or descriptor sets
+  // Currently no int uniforms needed in the UBO
 }
 
 void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
                               float value) {
-  // Vulkan uses push constants or descriptor sets
+  bool updated = false;
+
+  if (name.find("roughness") != std::string::npos) {
+    cachedUbo.materialProps[0] = value;
+    updated = true;
+  } else if (name.find("metallic") != std::string::npos) {
+    cachedUbo.materialColor[3] = value;
+    updated = true;
+  } else if (name.find("ao") != std::string::npos) {
+    cachedUbo.materialProps[1] = value;
+    updated = true;
+  } else if (name.find("emissionStrength") != std::string::npos) {
+    cachedUbo.materialProps[2] = value;
+    updated = true;
+  }
+
+  if (updated && currentFrame < uniformBuffersMapped.size() &&
+      uniformBuffersMapped[currentFrame]) {
+    memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
+           sizeof(UniformBufferObject));
+  }
 }
 
 void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
                               const float *value, uint32_t count) {
-  // Vulkan uses push constants or descriptor sets
+  bool updated = false;
+
+  if (name.find("albedo") != std::string::npos && count >= 3) {
+    cachedUbo.materialColor[0] = value[0];
+    cachedUbo.materialColor[1] = value[1];
+    cachedUbo.materialColor[2] = value[2];
+    updated = true;
+  } else if (name.find("emission") != std::string::npos && count >= 3) {
+    // Emission not in current shader but prepared for future
+    updated = true;
+  } else if (name.find("viewPos") != std::string::npos && count >= 3) {
+    cachedUbo.viewPos[0] = value[0];
+    cachedUbo.viewPos[1] = value[1];
+    cachedUbo.viewPos[2] = value[2];
+    updated = true;
+  } else if (name.find("lightDir") != std::string::npos && count >= 3) {
+    cachedUbo.lightDir[0] = value[0];
+    cachedUbo.lightDir[1] = value[1];
+    cachedUbo.lightDir[2] = value[2];
+    updated = true;
+  } else if (name.find("lightColor") != std::string::npos && count >= 3) {
+    cachedUbo.lightColor[0] = value[0];
+    cachedUbo.lightColor[1] = value[1];
+    cachedUbo.lightColor[2] = value[2];
+    updated = true;
+  }
+
+  if (updated && currentFrame < uniformBuffersMapped.size() &&
+      uniformBuffersMapped[currentFrame]) {
+    memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
+           sizeof(UniformBufferObject));
+  }
 }
 
 void VulkanDevice::SetUniformMatrix4(ShaderHandle shader,

@@ -141,6 +141,12 @@ private:
     alignas(16) float model[16];
     alignas(16) float view[16];
     alignas(16) float proj[16];
+    alignas(16) float materialColor[4]; // albedo.rgb + metallic
+    alignas(
+        16) float materialProps[4];  // roughness, ao, emissionStrength, unused
+    alignas(16) float lightDir[4];   // direction.xyz + intensity
+    alignas(16) float lightColor[4]; // color.rgb + unused
+    alignas(16) float viewPos[4];    // position.xyz + unused
   };
   std::vector<VkBuffer> uniformBuffers;
   std::vector<VkDeviceMemory> uniformBuffersMemory;
