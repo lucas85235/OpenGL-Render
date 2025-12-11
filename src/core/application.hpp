@@ -75,7 +75,7 @@ public:
 private:
   bool Init() {
     // Choose API
-    RHI::API api = RHI::API::OpenGL;
+    RHI::API api = RHI::API::Vulkan;
 
     // OpenGL needs GL context, Vulkan needs GLFW_NO_API
     bool createGLContext = (api == RHI::API::OpenGL);

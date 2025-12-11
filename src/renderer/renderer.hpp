@@ -117,7 +117,14 @@ public:
       pipelineDesc.depthStencil.depthWriteEnable = true;
       pipelineDesc.depthStencil.depthCompareOp = RHI::CompareOp::Less;
       pipelineDesc.rasterizer.cullMode = RHI::CullMode::Back;
-      pipelineDesc.rasterizer.frontFace = RHI::FrontFace::CounterClockwise;
+
+      // Vulkan Y-flip inverts apparent winding order, so use Clockwise for
+      // Vulkan
+      if (device->GetAPI() == RHI::API::Vulkan) {
+        pipelineDesc.rasterizer.frontFace = RHI::FrontFace::Clockwise;
+      } else {
+        pipelineDesc.rasterizer.frontFace = RHI::FrontFace::CounterClockwise;
+      }
 
       mainPipeline = device->CreatePipeline(
           pipelineDesc, activeShader->GetHandle(), meshLayout);
