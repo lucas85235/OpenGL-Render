@@ -95,11 +95,18 @@ elseif(GLSLANG)
 endif()
 
 if(SHADER_COMPILER)
+    # Vulkan-specific shaders (legacy, for backwards compatibility)
     set(VULKAN_SHADER_SOURCE_DIR "${CMAKE_SOURCE_DIR}/src/shaders/vulkan")
     set(VULKAN_SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders/vulkan")
     
-    file(MAKE_DIRECTORY ${VULKAN_SHADER_BINARY_DIR})
+    # Unified shaders (cross-platform via SPIRV-Cross)
+    set(UNIFIED_SHADER_SOURCE_DIR "${CMAKE_SOURCE_DIR}/src/shaders/unified")
+    set(UNIFIED_SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders/unified")
     
+    file(MAKE_DIRECTORY ${VULKAN_SHADER_BINARY_DIR})
+    file(MAKE_DIRECTORY ${UNIFIED_SHADER_BINARY_DIR})
+    
+    # Collect all shader sources
     file(GLOB VULKAN_SHADER_SOURCES 
         "${VULKAN_SHADER_SOURCE_DIR}/*.vert"
         "${VULKAN_SHADER_SOURCE_DIR}/*.frag"
@@ -107,7 +114,16 @@ if(SHADER_COMPILER)
         "${VULKAN_SHADER_SOURCE_DIR}/*.geom"
     )
     
+    file(GLOB UNIFIED_SHADER_SOURCES
+        "${UNIFIED_SHADER_SOURCE_DIR}/*.vert"
+        "${UNIFIED_SHADER_SOURCE_DIR}/*.frag"
+        "${UNIFIED_SHADER_SOURCE_DIR}/*.comp"
+        "${UNIFIED_SHADER_SOURCE_DIR}/*.geom"
+    )
+    
     set(SPIRV_OUTPUTS)
+    
+    # Compile Vulkan shaders
     foreach(SHADER ${VULKAN_SHADER_SOURCES})
         get_filename_component(SHADER_NAME ${SHADER} NAME)
         set(SPIRV_OUTPUT "${VULKAN_SHADER_BINARY_DIR}/${SHADER_NAME}.spv")
@@ -121,7 +137,21 @@ if(SHADER_COMPILER)
         list(APPEND SPIRV_OUTPUTS ${SPIRV_OUTPUT})
     endforeach()
     
-    add_custom_target(compile_vulkan_shaders ALL DEPENDS ${SPIRV_OUTPUTS})
+    # Compile Unified shaders
+    foreach(SHADER ${UNIFIED_SHADER_SOURCES})
+        get_filename_component(SHADER_NAME ${SHADER} NAME)
+        set(SPIRV_OUTPUT "${UNIFIED_SHADER_BINARY_DIR}/${SHADER_NAME}.spv")
+        
+        add_custom_command(
+            OUTPUT ${SPIRV_OUTPUT}
+            COMMAND ${SHADER_COMPILER} ${SHADER_COMPILE_FLAGS} ${SHADER} -o ${SPIRV_OUTPUT}
+            DEPENDS ${SHADER}
+            COMMENT "Compiling unified shader: ${SHADER_NAME}"
+        )
+        list(APPEND SPIRV_OUTPUTS ${SPIRV_OUTPUT})
+    endforeach()
+    
+    add_custom_target(compile_shaders ALL DEPENDS ${SPIRV_OUTPUTS})
 else()
     message(FATAL_ERROR "No SPIR-V shader compiler found. Install glslang-tools or Vulkan SDK.")
 endif()

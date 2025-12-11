@@ -75,7 +75,7 @@ public:
 private:
   bool Init() {
     // Choose API
-    RHI::API api = RHI::API::OpenGL;
+    RHI::API api = RHI::API::Vulkan;
 
     // OpenGL needs GL context, Vulkan needs GLFW_NO_API
     bool createGLContext = (api == RHI::API::OpenGL);
@@ -98,24 +98,30 @@ private:
         this->fb->Resize(w, h);
     });
 
-    // Compile Shaders
+    // Compile Shaders - Use unified SPIR-V shaders for cross-platform support
     pbrShader = std::make_unique<Shader>(rhiDevice.get());
-    if (!pbrShader->CompileFromFile(FS::GetPath("shaders/pbr.vert"),
-                                    FS::GetPath("shaders/pbr.frag"))) {
-      std::cerr << "[App] Failed to compile PBR shader" << std::endl;
+
+    // Try unified SPIR-V shaders first, fallback to legacy GLSL
+    if (!pbrShader->CompileFromSPIRV(
+            FS::GetPath("shaders/unified/pbr.vert.spv"),
+            FS::GetPath("shaders/unified/pbr.frag.spv"))) {
+      std::cout << "[App] SPIR-V shaders not available, falling back to GLSL"
+                << std::endl;
+      if (!pbrShader->CompileFromFile(FS::GetPath("shaders/pbr.vert"),
+                                      FS::GetPath("shaders/pbr.frag"))) {
+        std::cerr << "[App] Failed to compile PBR shader" << std::endl;
+      }
+    } else {
+      std::cout << "[App] Using unified SPIR-V shaders" << std::endl;
     }
 
     // screenShader = std::make_unique<Shader>(rhiDevice.get());
-    // if (!screenShader->CompileFromFile(FS::GetPath("shaders/screen.vert"),
-    //                                    FS::GetPath("shaders/screen.frag"))) {
-    //   std::cerr << "[App] Failed to compile screen shader" << std::endl;
-    // }
+    // screenShader->CompileFromSPIRV(FS::GetPath("shaders/unified/screen.vert.spv"),
+    //                                FS::GetPath("shaders/unified/screen.frag.spv"));
 
     // skyboxShader = std::make_unique<Shader>(rhiDevice.get());
-    // if (!skyboxShader->CompileFromFile(FS::GetPath("shaders/skybox.vert"),
-    //                                    FS::GetPath("shaders/skybox.frag"))) {
-    //   std::cerr << "[App] Failed to compile skybox shader" << std::endl;
-    // }
+    // skyboxShader->CompileFromSPIRV(FS::GetPath("shaders/unified/skybox.vert.spv"),
+    //                                FS::GetPath("shaders/unified/skybox.frag.spv"));
 
     // Setup Renderer
     renderer.Init(rhiDevice.get(), pbrShader.get());
