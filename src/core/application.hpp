@@ -40,7 +40,7 @@ private:
   std::vector<std::shared_ptr<Material>> materials;
 
   // Game State
-  glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
+  glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 50.0f);
 
   // Input Control
   bool mKeyPressed = false;
@@ -75,7 +75,7 @@ public:
 private:
   bool Init() {
     // Choose API
-    RHI::API api = RHI::API::OpenGL;
+    RHI::API api = RHI::API::Vulkan;
 
     // OpenGL needs GL context, Vulkan needs GLFW_NO_API
     bool createGLContext = (api == RHI::API::OpenGL);
@@ -105,17 +105,17 @@ private:
       std::cerr << "[App] Failed to compile PBR shader" << std::endl;
     }
 
-    screenShader = std::make_unique<Shader>(rhiDevice.get());
-    if (!screenShader->CompileFromFile(FS::GetPath("shaders/screen.vert"),
-                                       FS::GetPath("shaders/screen.frag"))) {
-      std::cerr << "[App] Failed to compile screen shader" << std::endl;
-    }
+    // screenShader = std::make_unique<Shader>(rhiDevice.get());
+    // if (!screenShader->CompileFromFile(FS::GetPath("shaders/screen.vert"),
+    //                                    FS::GetPath("shaders/screen.frag"))) {
+    //   std::cerr << "[App] Failed to compile screen shader" << std::endl;
+    // }
 
-    skyboxShader = std::make_unique<Shader>(rhiDevice.get());
-    if (!skyboxShader->CompileFromFile(FS::GetPath("shaders/skybox.vert"),
-                                       FS::GetPath("shaders/skybox.frag"))) {
-      std::cerr << "[App] Failed to compile skybox shader" << std::endl;
-    }
+    // skyboxShader = std::make_unique<Shader>(rhiDevice.get());
+    // if (!skyboxShader->CompileFromFile(FS::GetPath("shaders/skybox.vert"),
+    //                                    FS::GetPath("shaders/skybox.frag"))) {
+    //   std::cerr << "[App] Failed to compile skybox shader" << std::endl;
+    // }
 
     // Setup Renderer
     renderer.Init(rhiDevice.get(), pbrShader.get());

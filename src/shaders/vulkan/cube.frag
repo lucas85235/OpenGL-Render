@@ -102,8 +102,8 @@ void main() {
     vec3 radiance = lightColor * lightIntensity;
     vec3 Lo = (kD * albedo / PI + specular) * radiance * NdotL;
     
-    // Ambient
-    vec3 ambient = vec3(0.03) * albedo * ao;
+    // Ambient (higher than OpenGL default to compensate for no point lights/IBL)
+    vec3 ambient = vec3(0.1) * albedo * ao;
     
     // Final color
     vec3 color = ambient + Lo;

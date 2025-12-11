@@ -42,20 +42,20 @@ bool VulkanDevice::Initialize() {
   cachedUbo.materialProps[2] = 0.0f; // Emission strength
   cachedUbo.materialProps[3] = 0.0f; // Unused
 
-  cachedUbo.lightDir[0] = -0.5f; // Light direction X
+  cachedUbo.lightDir[0] = -0.2f; // Light direction X (matches OpenGL dirLight)
   cachedUbo.lightDir[1] = -1.0f; // Light direction Y
-  cachedUbo.lightDir[2] = -0.5f; // Light direction Z
-  cachedUbo.lightDir[3] = 2.0f;  // Light intensity
+  cachedUbo.lightDir[2] = -0.3f; // Light direction Z
+  cachedUbo.lightDir[3] = 3.0f;  // Light intensity (increased)
 
-  cachedUbo.lightColor[0] = 1.0f;  // Light color R
-  cachedUbo.lightColor[1] = 0.95f; // Light color G
-  cachedUbo.lightColor[2] = 0.9f;  // Light color B
-  cachedUbo.lightColor[3] = 1.0f;  // Unused
+  cachedUbo.lightColor[0] = 1.0f; // Light color R
+  cachedUbo.lightColor[1] = 0.9f; // Light color G
+  cachedUbo.lightColor[2] = 0.8f; // Light color B (warmer like OpenGL sun)
+  cachedUbo.lightColor[3] = 1.0f; // Unused
 
-  cachedUbo.viewPos[0] = 0.0f; // View position X
-  cachedUbo.viewPos[1] = 0.0f; // View position Y
-  cachedUbo.viewPos[2] = 6.0f; // View position Z
-  cachedUbo.viewPos[3] = 1.0f; // Unused
+  cachedUbo.viewPos[0] = 0.0f;  // View position X
+  cachedUbo.viewPos[1] = 0.0f;  // View position Y
+  cachedUbo.viewPos[2] = 50.0f; // View position Z (matches camera distance)
+  cachedUbo.viewPos[3] = 1.0f;  // Unused
 
   std::cout << "[Vulkan] Device initialized successfully" << std::endl;
   return true;
@@ -1549,9 +1549,10 @@ PipelineHandle VulkanDevice::CreatePipeline(const PipelineDescriptor &desc,
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
   }
 
+  // Vulkan Y-axis is flipped vs OpenGL, so we invert the frontFace
   rasterizer.frontFace = (desc.rasterizer.frontFace == FrontFace::Clockwise)
-                             ? VK_FRONT_FACE_CLOCKWISE
-                             : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                             ? VK_FRONT_FACE_COUNTER_CLOCKWISE
+                             : VK_FRONT_FACE_CLOCKWISE;
   rasterizer.depthBiasEnable = VK_FALSE;
 
   // Multisampling
@@ -1845,11 +1846,15 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
   } else if (name.find("metallic") != std::string::npos) {
     cachedUbo.materialColor[3] = value;
     updated = true;
-  } else if (name.find("ao") != std::string::npos) {
+  } else if (name.find("ao") != std::string::npos &&
+             name.find("emission") == std::string::npos) {
     cachedUbo.materialProps[1] = value;
     updated = true;
   } else if (name.find("emissionStrength") != std::string::npos) {
     cachedUbo.materialProps[2] = value;
+    updated = true;
+  } else if (name.find("dirLight.intensity") != std::string::npos) {
+    cachedUbo.lightDir[3] = value;
     updated = true;
   }
 
@@ -1872,17 +1877,24 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
   } else if (name.find("emission") != std::string::npos && count >= 3) {
     // Emission not in current shader but prepared for future
     updated = true;
-  } else if (name.find("viewPos") != std::string::npos && count >= 3) {
+  } else if ((name.find("viewPos") != std::string::npos) && count >= 3) {
     cachedUbo.viewPos[0] = value[0];
     cachedUbo.viewPos[1] = value[1];
     cachedUbo.viewPos[2] = value[2];
     updated = true;
-  } else if (name.find("lightDir") != std::string::npos && count >= 3) {
+  } else if ((name.find("lightDir") != std::string::npos ||
+              name.find("dirLight.direction") != std::string::npos) &&
+             count >= 3) {
     cachedUbo.lightDir[0] = value[0];
     cachedUbo.lightDir[1] = value[1];
     cachedUbo.lightDir[2] = value[2];
+    std::cout << "[UBO] dirLight.direction: (" << value[0] << ", " << value[1]
+              << ", " << value[2] << ") intensity=" << cachedUbo.lightDir[3]
+              << std::endl;
     updated = true;
-  } else if (name.find("lightColor") != std::string::npos && count >= 3) {
+  } else if ((name.find("lightColor") != std::string::npos ||
+              name.find("dirLight.color") != std::string::npos) &&
+             count >= 3) {
     cachedUbo.lightColor[0] = value[0];
     cachedUbo.lightColor[1] = value[1];
     cachedUbo.lightColor[2] = value[2];
