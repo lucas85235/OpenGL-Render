@@ -1762,11 +1762,72 @@ void VulkanDevice::BindFramebuffer(FramebufferHandle framebuffer) {
 }
 
 void VulkanDevice::BindTexture(uint32_t slot, TextureHandle texture) {
-  // TODO: Implement descriptor binding
+  auto texIt = textures.find(texture.id);
+  if (texIt == textures.end())
+    return;
+
+  // Get or create default sampler
+  VkSampler texSampler = VK_NULL_HANDLE;
+  if (!samplers.empty()) {
+    texSampler = samplers.begin()->second.sampler;
+  } else {
+    // Create a default sampler
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.anisotropyEnable = VK_FALSE;
+    samplerInfo.maxAnisotropy = 1.0f;
+    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    samplerInfo.unnormalizedCoordinates = VK_FALSE;
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    VkSampler newSampler;
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &newSampler) ==
+        VK_SUCCESS) {
+      VulkanSampler vs;
+      vs.sampler = newSampler;
+      samplers[nextId] = vs;
+      texSampler = newSampler;
+      nextId++;
+    } else {
+      std::cerr << "[Vulkan] Failed to create default sampler" << std::endl;
+      return;
+    }
+  }
+
+  // Update descriptor set for current frame with the texture
+  VkDescriptorImageInfo imageInfo{};
+  imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfo.imageView = texIt->second.imageView;
+  imageInfo.sampler = texSampler;
+
+  VkWriteDescriptorSet descriptorWrite{};
+  descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  descriptorWrite.dstSet = descriptorSets[currentFrame];
+  descriptorWrite.dstBinding = 1; // sampler binding
+  descriptorWrite.dstArrayElement = 0;
+  descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  descriptorWrite.descriptorCount = 1;
+  descriptorWrite.pImageInfo = &imageInfo;
+
+  vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+
+  // Set hasTexture flag in cachedUbo
+  cachedUbo.materialProps[3] = 1.0f;
+  if (currentFrame < uniformBuffersMapped.size() &&
+      uniformBuffersMapped[currentFrame]) {
+    memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
+           sizeof(UniformBufferObject));
+  }
 }
 
 void VulkanDevice::BindSampler(uint32_t slot, SamplerHandle sampler) {
-  // TODO: Implement descriptor binding
+  // Sampler is combined with texture in BindTexture
 }
 
 void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,

@@ -3,7 +3,7 @@
 // Push constants for per-object material (changes per draw)
 layout(push_constant) uniform PushConstants {
     vec4 materialColor;  // albedo.rgb + metallic
-    vec4 materialProps;  // roughness, ao, emissionStrength, unused
+    vec4 materialProps;  // roughness, ao, emissionStrength, hasTexture
 } pc;
 
 // UBO for per-frame data (constant for the frame)
@@ -17,6 +17,9 @@ layout(binding = 0) uniform UniformBufferObject {
     vec4 lightColor;     // color.rgb + unused
     vec4 viewPos;        // position.xyz + unused
 } ubo;
+
+// Texture sampler (binding = 1)
+layout(binding = 1) uniform sampler2D texDiffuse;
 
 layout(location = 0) in vec3 fragPos;
 layout(location = 1) in vec3 fragNormal;
@@ -58,6 +61,13 @@ void main() {
     float metallic = pc.materialColor.a;
     float roughness = max(pc.materialProps.x, 0.04);
     float ao = pc.materialProps.y;
+    float hasTexture = pc.materialProps.w;
+    
+    // Sample diffuse texture if hasTexture flag is set
+    if (hasTexture > 0.5) {
+        vec4 texColor = texture(texDiffuse, fragTexCoord);
+        albedo = pow(texColor.rgb, vec3(2.2)); // sRGB to linear
+    }
     
     // Light from UBO (per-frame)
     vec3 lightDir = normalize(ubo.lightDir.xyz);

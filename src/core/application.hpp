@@ -74,12 +74,15 @@ public:
 
 private:
   bool Init() {
-    // For Vulkan, we don't create OpenGL context
-    if (!window->Init(false))
+    // Choose API
+    RHI::API api = RHI::API::OpenGL;
+
+    // OpenGL needs GL context, Vulkan needs GLFW_NO_API
+    bool createGLContext = (api == RHI::API::OpenGL);
+    if (!window->Init(createGLContext))
       return false;
 
     // Create RHI Device
-    RHI::API api = RHI::API::Vulkan;
     rhiDevice = RHI::CreateDevice(api, window->GetNativeWindow());
     if (!rhiDevice) {
       std::cerr << "[App] Failed to create RHI device!" << std::endl;
