@@ -1,11 +1,18 @@
 #version 450
 
+// Push constants for per-object material (changes per draw)
+layout(push_constant) uniform PushConstants {
+    vec4 materialColor;  // albedo.rgb + metallic
+    vec4 materialProps;  // roughness, ao, emissionStrength, unused
+} pc;
+
+// UBO for per-frame data (constant for the frame)
 layout(binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
-    vec4 materialColor;  // albedo.rgb + metallic
-    vec4 materialProps;  // roughness, ao, emissionStrength, unused
+    vec4 _materialColor;  // not used, kept for alignment  
+    vec4 _materialProps;  // not used, kept for alignment
     vec4 lightDir;       // direction.xyz + intensity
     vec4 lightColor;     // color.rgb + unused
     vec4 viewPos;        // position.xyz + unused
@@ -46,13 +53,13 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
 }
 
 void main() {
-    // Material from UBO
-    vec3 albedo = ubo.materialColor.rgb;
-    float metallic = ubo.materialColor.a;
-    float roughness = max(ubo.materialProps.x, 0.04);
-    float ao = ubo.materialProps.y;
+    // Material from push constants (per-object)
+    vec3 albedo = pc.materialColor.rgb;
+    float metallic = pc.materialColor.a;
+    float roughness = max(pc.materialProps.x, 0.04);
+    float ao = pc.materialProps.y;
     
-    // Light from UBO
+    // Light from UBO (per-frame)
     vec3 lightDir = normalize(ubo.lightDir.xyz);
     float lightIntensity = ubo.lightDir.w;
     vec3 lightColor = ubo.lightColor.rgb;

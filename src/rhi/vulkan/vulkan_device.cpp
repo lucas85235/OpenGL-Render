@@ -1615,11 +1615,20 @@ PipelineHandle VulkanDevice::CreatePipeline(const PipelineDescriptor &desc,
   depthStencil.depthBoundsTestEnable = VK_FALSE;
   depthStencil.stencilTestEnable = VK_FALSE;
 
+  // Push constants for per-object material
+  VkPushConstantRange pushConstantRange{};
+  pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  pushConstantRange.offset = 0;
+  pushConstantRange.size =
+      sizeof(float) * 8; // materialColor[4] + materialProps[4]
+
   // Pipeline layout
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount = 1;
   pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+  pipelineLayoutInfo.pushConstantRangeCount = 1;
+  pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
   if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr,
                              &vkPipeline.layout) != VK_SUCCESS) {
@@ -1897,6 +1906,23 @@ void VulkanDevice::DrawIndexed(const DrawIndexedCommand &cmd) {
                                   : VK_INDEX_TYPE_UINT32;
       vkCmdBindIndexBuffer(commandBuffers[currentFrame], ibIt->second.buffer, 0,
                            indexType);
+    }
+
+    // Push material constants before drawing - reuse pipeIt from above
+    if (pipeIt != pipelines.end()) {
+      struct MaterialPushConstants {
+        float materialColor[4];
+        float materialProps[4];
+      } pushData;
+
+      memcpy(pushData.materialColor, cachedUbo.materialColor,
+             sizeof(float) * 4);
+      memcpy(pushData.materialProps, cachedUbo.materialProps,
+             sizeof(float) * 4);
+
+      vkCmdPushConstants(commandBuffers[currentFrame], pipeIt->second.layout,
+                         VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                         sizeof(MaterialPushConstants), &pushData);
     }
   }
 
