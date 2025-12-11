@@ -28,10 +28,22 @@ public:
       return false;
     }
 
+    // Create color texture first
+    RHI::TextureDescriptor texDesc;
+    texDesc.type = RHI::TextureType::Texture2D;
+    texDesc.format = RHI::TextureFormat::RGBA16F;
+    texDesc.width = width;
+    texDesc.height = height;
+    texDesc.mipLevels = 1;
+    colorTexture = device->CreateTexture(texDesc);
+
+    // Create framebuffer with attachment
     RHI::FramebufferDescriptor desc;
     desc.width = width;
     desc.height = height;
-    desc.colorFormats = {RHI::TextureFormat::RGBA16F};
+    RHI::RenderTargetAttachment colorAttachment;
+    colorAttachment.texture = colorTexture;
+    desc.colorAttachments.push_back(colorAttachment);
     desc.hasDepth = true;
 
     fbo = device->CreateFramebuffer(desc);
@@ -40,8 +52,6 @@ public:
       return false;
     }
 
-    colorTexture =
-        device->GetFramebufferTexture(fbo, RHI::FramebufferAttachment::Color0);
     initialized = true;
     std::cout << "[FrameBuffer] Initialized (" << width << "x" << height << ")"
               << std::endl;
