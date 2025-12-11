@@ -1,39 +1,34 @@
 #version 450
 
-// Scene uniforms (per-frame)
-layout(set = 0, binding = 0) uniform SceneUBO {
-    mat4 view;
-    mat4 projection;
-    vec4 cameraPos;      // xyz = position
-    vec4 lightDir;       // xyz = direction, w = intensity
-    vec4 lightColor;     // xyz = color
-} scene;
-
-// Per-object data (push constants)
-layout(push_constant) uniform PushConstants {
+// UBO layout MUST match VulkanDevice::UniformBufferObject exactly
+layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
+    mat4 view;
+    mat4 proj;
     vec4 materialColor;  // rgb = albedo, a = metallic
     vec4 materialProps;  // r = roughness, g = ao, b = emissionStrength, a = flags
-} pc;
+    vec4 lightDir;       // xyz = direction, w = intensity
+    vec4 lightColor;     // xyz = color
+    vec4 viewPos;        // xyz = camera position
+} ubo;
 
 // Texture samplers
 layout(set = 0, binding = 1) uniform sampler2D texDiffuse;
-layout(set = 0, binding = 2) uniform sampler2D texNormal;
-layout(set = 0, binding = 3) uniform sampler2D texMetallic;
-layout(set = 0, binding = 4) uniform sampler2D texRoughness;
-layout(set = 0, binding = 5) uniform sampler2D texAO;
-layout(set = 0, binding = 6) uniform sampler2D texEmission;
+// layout(set = 0, binding = 2) uniform sampler2D texNormal;
+// layout(set = 0, binding = 3) uniform sampler2D texMetallic;
+// layout(set = 0, binding = 4) uniform sampler2D texRoughness;
+// layout(set = 0, binding = 5) uniform sampler2D texAO;
+// layout(set = 0, binding = 6) uniform sampler2D texEmission;
 
-// IBL maps
-layout(set = 0, binding = 7) uniform samplerCube irradianceMap;
-layout(set = 0, binding = 8) uniform samplerCube prefilterMap;
-layout(set = 0, binding = 9) uniform sampler2D brdfLUT;
+// IBL maps (Temporarily disabled to match RHI descriptor layout)
+// layout(set = 0, binding = 7) uniform samplerCube irradianceMap;
+// layout(set = 0, binding = 8) uniform samplerCube prefilterMap;
+// layout(set = 0, binding = 9) uniform sampler2D brdfLUT;
 
 // Fragment inputs
 layout(location = 0) in vec3 fragPos;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec2 fragTexCoord;
-layout(location = 3) in mat3 fragTBN;
 
 // Output
 layout(location = 0) out vec4 outColor;
@@ -103,41 +98,36 @@ vec3 CalcPBRLight(vec3 L, vec3 V, vec3 N, vec3 F0, vec3 albedo, float metallic, 
 }
 
 void main() {
-    uint flags = uint(pc.materialProps.a);
+    uint flags = uint(ubo.materialProps.a);
     
     // Material properties
-    vec3 albedo = pc.materialColor.rgb;
-    float metallic = pc.materialColor.a;
-    float roughness = pc.materialProps.r;
-    float ao = pc.materialProps.g;
-    float emissionStrength = pc.materialProps.b;
+    vec3 albedo = ubo.materialColor.rgb;
+    float metallic = ubo.materialColor.a;
+    float roughness = ubo.materialProps.r;
+    float ao = ubo.materialProps.g;
+    float emissionStrength = ubo.materialProps.b;
     
     // Sample textures if available
     if (hasFlag(flags, FLAG_HAS_DIFFUSE)) {
         vec4 texColor = texture(texDiffuse, fragTexCoord);
         albedo = pow(texColor.rgb, vec3(2.2)); // sRGB to linear
     }
-    if (hasFlag(flags, FLAG_HAS_METALLIC)) {
-        metallic = texture(texMetallic, fragTexCoord).r;
-    }
-    if (hasFlag(flags, FLAG_HAS_ROUGHNESS)) {
-        roughness = texture(texRoughness, fragTexCoord).r;
-    }
-    if (hasFlag(flags, FLAG_HAS_AO)) {
-        ao = texture(texAO, fragTexCoord).r;
-    }
+    // if (hasFlag(flags, FLAG_HAS_METALLIC)) {
+    //     metallic = texture(texMetallic, fragTexCoord).r;
+    // }
+    // if (hasFlag(flags, FLAG_HAS_ROUGHNESS)) {
+    //     roughness = texture(texRoughness, fragTexCoord).r;
+    // }
+    // if (hasFlag(flags, FLAG_HAS_AO)) {
+    //     ao = texture(texAO, fragTexCoord).r;
+    // }
     
     roughness = clamp(roughness, 0.04, 1.0);
     
-    // Normal calculation
+    // Normal calculation (TBN not available without tangent data)
     vec3 N = normalize(fragNormal);
-    if (hasFlag(flags, FLAG_HAS_NORMAL)) {
-        vec3 normalMap = texture(texNormal, fragTexCoord).rgb;
-        normalMap = normalMap * 2.0 - 1.0;
-        N = normalize(fragTBN * normalMap);
-    }
     
-    vec3 V = normalize(scene.cameraPos.xyz - fragPos);
+    vec3 V = normalize(ubo.viewPos.xyz - fragPos);
     
     // Fix backfacing normals
     float NdotV = dot(N, V);
@@ -154,8 +144,8 @@ void main() {
     vec3 Lo = vec3(0.0);
     
     // Directional light
-    vec3 L = normalize(-scene.lightDir.xyz);
-    vec3 radiance = scene.lightColor.rgb * scene.lightDir.w;
+    vec3 L = normalize(-ubo.lightDir.xyz);
+    vec3 radiance = ubo.lightColor.rgb * ubo.lightDir.w;
     Lo += CalcPBRLight(L, V, N, F0, albedo, metallic, roughness, radiance);
     
     // Ambient / IBL
@@ -167,14 +157,17 @@ void main() {
         vec3 kD = (1.0 - kS) * (1.0 - metallic);
         
         // Diffuse IBL
-        vec3 irradiance = texture(irradianceMap, N).rgb;
+        // vec3 irradiance = texture(irradianceMap, N).rgb;
+        vec3 irradiance = vec3(0.03); // Fallback
         vec3 diffuse = kD * irradiance * albedo;
         
         // Specular IBL
         vec3 R = reflect(-V, N);
         const float MAX_REFLECTION_LOD = 4.0;
-        vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-        vec2 envBRDF = texture(brdfLUT, vec2(NdotV, roughness)).rg;
+        // vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+        vec3 prefilteredColor = vec3(0.0); // Fallback
+        // vec2 envBRDF = texture(brdfLUT, vec2(NdotV, roughness)).rg;
+        vec2 envBRDF = vec2(0.5, 0.5); // Fallback
         vec3 specular = prefilteredColor * (F0 * envBRDF.x + envBRDF.y);
         
         ambient = (diffuse + specular) * ao;
@@ -185,7 +178,7 @@ void main() {
     // Emission
     vec3 emission = vec3(0.0);
     if (hasFlag(flags, FLAG_HAS_EMISSION)) {
-        emission = pow(texture(texEmission, fragTexCoord).rgb, vec3(2.2));
+        // emission = pow(texture(texEmission, fragTexCoord).rgb, vec3(2.2));
     }
     emission *= emissionStrength;
     

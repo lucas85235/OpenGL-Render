@@ -40,7 +40,7 @@ private:
   std::vector<std::shared_ptr<Material>> materials;
 
   // Game State
-  glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 50.0f);
+  glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
 
   // Input Control
   bool mKeyPressed = false;
@@ -75,7 +75,7 @@ public:
 private:
   bool Init() {
     // Choose API
-    RHI::API api = RHI::API::Vulkan;
+    RHI::API api = RHI::API::OpenGL;
 
     // OpenGL needs GL context, Vulkan needs GLFW_NO_API
     bool createGLContext = (api == RHI::API::OpenGL);
@@ -126,10 +126,12 @@ private:
     // Setup Renderer
     renderer.Init(rhiDevice.get(), pbrShader.get());
 
-    // Setup Framebuffer
-    fb = std::make_unique<FrameBuffer>(rhiDevice.get(), window->GetWidth(),
-                                       window->GetHeight());
-    fb->Init();
+    // Setup Framebuffer (skip for Vulkan - has its own swapchain)
+    if (api == RHI::API::Vulkan) {
+      fb = std::make_unique<FrameBuffer>(rhiDevice.get(), window->GetWidth(),
+                                         window->GetHeight());
+      fb->Init();
+    }
 
     // Setup Environment Map
     envMap.SetDevice(rhiDevice.get());
