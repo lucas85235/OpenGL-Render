@@ -28,6 +28,7 @@ bool VulkanDevice::Initialize() {
   createCommandPool();
   createUniformBuffers();
   createDescriptorPool();
+  createDummyTexture();
   createDescriptorSets();
   createCommandBuffers();
   createSyncObjects();
@@ -821,23 +822,30 @@ void VulkanDevice::createSyncObjects() {
 }
 
 void VulkanDevice::createDescriptorSetLayout() {
+  // Binding 0: UBO for scene-wide data
   VkDescriptorSetLayoutBinding uboLayoutBinding{};
   uboLayoutBinding.binding = 0;
   uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   uboLayoutBinding.descriptorCount = 1;
-  uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  uboLayoutBinding.stageFlags =
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   uboLayoutBinding.pImmutableSamplers = nullptr;
 
-  VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-  samplerLayoutBinding.binding = 1;
-  samplerLayoutBinding.descriptorCount = 1;
-  samplerLayoutBinding.descriptorType =
-      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  samplerLayoutBinding.pImmutableSamplers = nullptr;
-  samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  // Bindings 1-6: Texture samplers for PBR materials
+  constexpr uint32_t NUM_TEXTURE_SLOTS = 6;
+  std::array<VkDescriptorSetLayoutBinding, 1 + NUM_TEXTURE_SLOTS> bindings;
+  bindings[0] = uboLayoutBinding;
 
-  std::array<VkDescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding,
-                                                          samplerLayoutBinding};
+  for (uint32_t i = 0; i < NUM_TEXTURE_SLOTS; i++) {
+    VkDescriptorSetLayoutBinding &texBinding = bindings[1 + i];
+    texBinding.binding =
+        1 + i; // 1=diffuse, 2=normal, 3=metallic, 4=roughness, 5=ao, 6=emission
+    texBinding.descriptorCount = 1;
+    texBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    texBinding.pImmutableSamplers = nullptr;
+    texBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  }
+
   VkDescriptorSetLayoutCreateInfo layoutInfo{};
   layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
   layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -939,7 +947,113 @@ void VulkanDevice::createDescriptorSets() {
     descriptorWrite.pBufferInfo = &bufferInfo;
 
     vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+
+    // Initialize all 6 texture bindings (1-6) with dummy texture
+    VkDescriptorImageInfo dummyImageInfo{};
+    dummyImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    dummyImageInfo.imageView = dummyImageView;
+    dummyImageInfo.sampler = dummySampler;
+
+    for (uint32_t binding = 1; binding <= 6; binding++) {
+      VkWriteDescriptorSet texWrite{};
+      texWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      texWrite.dstSet = descriptorSets[i];
+      texWrite.dstBinding = binding;
+      texWrite.dstArrayElement = 0;
+      texWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      texWrite.descriptorCount = 1;
+      texWrite.pImageInfo = &dummyImageInfo;
+
+      vkUpdateDescriptorSets(device, 1, &texWrite, 0, nullptr);
+    }
   }
+
+  std::cout << "[Vulkan] Descriptor sets initialized with dummy textures"
+            << std::endl;
+}
+
+void VulkanDevice::createDummyTexture() {
+  // Create a 1x1 white texture for unused descriptor bindings
+  uint32_t whitePixel = 0xFFFFFFFF;
+
+  VkDeviceSize imageSize = 4; // 1x1 RGBA
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
+
+  // Create staging buffer inline (same pattern as CreateTexture)
+  VkBufferCreateInfo bufferInfo{};
+  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferInfo.size = imageSize;
+  bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  if (vkCreateBuffer(device, &bufferInfo, nullptr, &stagingBuffer) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create dummy staging buffer" << std::endl;
+    return;
+  }
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device, stagingBuffer, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex = findMemoryType(
+      memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  if (vkAllocateMemory(device, &allocInfo, nullptr, &stagingBufferMemory) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to allocate dummy staging buffer memory"
+              << std::endl;
+    vkDestroyBuffer(device, stagingBuffer, nullptr);
+    return;
+  }
+  vkBindBufferMemory(device, stagingBuffer, stagingBufferMemory, 0);
+
+  void *data;
+  vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+  memcpy(data, &whitePixel, static_cast<size_t>(imageSize));
+  vkUnmapMemory(device, stagingBufferMemory);
+
+  createImage(1, 1, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, dummyImage,
+              dummyImageMemory);
+
+  transitionImageLayout(dummyImage, VK_FORMAT_R8G8B8A8_SRGB,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  copyBufferToImage(stagingBuffer, dummyImage, 1, 1);
+  transitionImageLayout(dummyImage, VK_FORMAT_R8G8B8A8_SRGB,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  vkDestroyBuffer(device, stagingBuffer, nullptr);
+  vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+  dummyImageView = createImageView(dummyImage, VK_FORMAT_R8G8B8A8_SRGB);
+
+  VkSamplerCreateInfo samplerInfo{};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter = VK_FILTER_NEAREST;
+  samplerInfo.minFilter = VK_FILTER_NEAREST;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.anisotropyEnable = VK_FALSE;
+  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
+  samplerInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+  if (vkCreateSampler(device, &samplerInfo, nullptr, &dummySampler) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create dummy sampler" << std::endl;
+  }
+
+  std::cout << "[Vulkan] Dummy texture created" << std::endl;
 }
 
 void VulkanDevice::updateUniformBuffer(uint32_t currentImage) {
@@ -2122,16 +2236,32 @@ void VulkanDevice::BindFramebuffer(FramebufferHandle framebuffer) {
 }
 
 void VulkanDevice::BindTexture(uint32_t slot, TextureHandle texture) {
-  auto texIt = textures.find(texture.id);
-  if (texIt == textures.end())
+  // Support texture slots 0-5 mapping to shader bindings 1-6
+  // Slot 0=diffuse(binding 1), 1=normal(2), 2=metallic(3), 3=roughness(4),
+  // 4=ao(5), 5=emission(6)
+  constexpr uint32_t MAX_TEXTURE_SLOTS = 6;
+  if (slot >= MAX_TEXTURE_SLOTS) {
+    std::cerr << "[Vulkan] BindTexture: slot " << slot << " out of range"
+              << std::endl;
     return;
+  }
+
+  auto texIt = textures.find(texture.id);
+  if (texIt == textures.end()) {
+    std::cerr << "[Vulkan] BindTexture: texture id=" << texture.id
+              << " not found" << std::endl;
+    return;
+  }
+
+  std::cout << "[Vulkan] BindTexture: slot=" << slot
+            << " -> binding=" << (1 + slot) << ", texId=" << texture.id
+            << std::endl;
 
   // Get or create default sampler
   VkSampler texSampler = VK_NULL_HANDLE;
   if (!samplers.empty()) {
     texSampler = samplers.begin()->second.sampler;
   } else {
-    // Create a default sampler
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -2160,7 +2290,7 @@ void VulkanDevice::BindTexture(uint32_t slot, TextureHandle texture) {
     }
   }
 
-  // Update descriptor set for current frame with the texture
+  // Update descriptor set - slot 0 goes to binding 1, etc.
   VkDescriptorImageInfo imageInfo{};
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfo.imageView = texIt->second.imageView;
@@ -2169,7 +2299,8 @@ void VulkanDevice::BindTexture(uint32_t slot, TextureHandle texture) {
   VkWriteDescriptorSet descriptorWrite{};
   descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   descriptorWrite.dstSet = descriptorSets[currentFrame];
-  descriptorWrite.dstBinding = 1; // sampler binding
+  descriptorWrite.dstBinding =
+      1 + slot; // slot 0 -> binding 1, slot 1 -> binding 2, etc.
   descriptorWrite.dstArrayElement = 0;
   descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   descriptorWrite.descriptorCount = 1;
@@ -2177,10 +2308,11 @@ void VulkanDevice::BindTexture(uint32_t slot, TextureHandle texture) {
 
   vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
 
-  // Set hasTexture flag in push constants
+  // Set texture flag based on slot
   uint32_t currentFlags =
       static_cast<uint32_t>(cachedPushConstants.materialProps[3]);
-  currentFlags |= 1u; // FLAG_HAS_DIFFUSE
+  currentFlags |=
+      (1u << slot); // FLAG_HAS_DIFFUSE=1, NORMAL=2, METALLIC=4, etc.
   cachedPushConstants.materialProps[3] = static_cast<float>(currentFlags);
 }
 
@@ -2572,6 +2704,10 @@ VkFormat VulkanDevice::toVkFormat(TextureFormat format) {
     return VK_FORMAT_R8G8B8_UNORM;
   case TextureFormat::RGBA8:
     return VK_FORMAT_R8G8B8A8_UNORM;
+  case TextureFormat::SRGB8:
+    return VK_FORMAT_R8G8B8A8_SRGB; // RGB8 SRGB not widely supported, use RGBA
+  case TextureFormat::SRGB8_Alpha8:
+    return VK_FORMAT_R8G8B8A8_SRGB;
   case TextureFormat::RGBA16F:
     return VK_FORMAT_R16G16B16A16_SFLOAT;
   case TextureFormat::Depth24Stencil8:

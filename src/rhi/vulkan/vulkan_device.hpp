@@ -182,6 +182,13 @@ private:
   // Cached push constants for per-draw data
   PushConstants cachedPushConstants{};
 
+  // Dummy 1x1 white texture for unused descriptor bindings
+  VkImage dummyImage = VK_NULL_HANDLE;
+  VkDeviceMemory dummyImageMemory = VK_NULL_HANDLE;
+  VkImageView dummyImageView = VK_NULL_HANDLE;
+  VkSampler dummySampler = VK_NULL_HANDLE;
+  void createDummyTexture();
+
   void createDescriptorSetLayout();
   void createUniformBuffers();
   void createDescriptorPool();

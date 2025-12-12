@@ -18,11 +18,11 @@ layout(push_constant) uniform PushConstants {
 
 // Texture samplers
 layout(set = 0, binding = 1) uniform sampler2D texDiffuse;
-// layout(set = 0, binding = 2) uniform sampler2D texNormal;
-// layout(set = 0, binding = 3) uniform sampler2D texMetallic;
-// layout(set = 0, binding = 4) uniform sampler2D texRoughness;
-// layout(set = 0, binding = 5) uniform sampler2D texAO;
-// layout(set = 0, binding = 6) uniform sampler2D texEmission;
+layout(set = 0, binding = 2) uniform sampler2D texNormal;
+layout(set = 0, binding = 3) uniform sampler2D texMetallic;
+layout(set = 0, binding = 4) uniform sampler2D texRoughness;
+layout(set = 0, binding = 5) uniform sampler2D texAO;
+layout(set = 0, binding = 6) uniform sampler2D texEmission;
 
 // IBL maps (Temporarily disabled to match RHI descriptor layout)
 // layout(set = 0, binding = 7) uniform samplerCube irradianceMap;

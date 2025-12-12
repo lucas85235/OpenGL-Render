@@ -51,8 +51,12 @@ public:
     if (!dev)
       return;
 
-    for (size_t i = 0; i < textures.size(); i++) {
-      textures[i]->Bind(static_cast<uint32_t>(i));
+    // Bind textures by TYPE to correct slot (not by array index)
+    for (const auto &tex : textures) {
+      uint32_t slot = GetSlotForTextureType(tex->GetType());
+      std::cout << "[Material] Binding " << TextureTypeToString(tex->GetType())
+                << " to slot " << slot << std::endl;
+      tex->Bind(slot);
     }
 
     dev->SetUniform(shader, "material.albedo", &properties.albedo[0], 3);
@@ -62,6 +66,26 @@ public:
     dev->SetUniform(shader, "material.emission", &properties.emission[0], 3);
     dev->SetUniform(shader, "material.emissionStrength",
                     properties.emissionStrength);
+  }
+
+  // Map texture type to shader slot (0=diffuse, 1=normal, 2=metallic, etc.)
+  static uint32_t GetSlotForTextureType(TextureType type) {
+    switch (type) {
+    case TextureType::DIFFUSE:
+      return 0;
+    case TextureType::NORMAL:
+      return 1;
+    case TextureType::METALLIC:
+      return 2;
+    case TextureType::ROUGHNESS:
+      return 3;
+    case TextureType::AO:
+      return 4;
+    case TextureType::EMISSION:
+      return 5;
+    default:
+      return 0;
+    }
   }
 
   void SetName(const std::string &n) { name = n; }

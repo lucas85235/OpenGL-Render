@@ -184,7 +184,7 @@ private:
                   compressedSize, texType, params)) {
             targetMat->AddTexture(embeddedTex);
             std::cout << "[Model] Loaded embedded texture " << textureIndex
-                      << std::endl;
+                      << " as " << TextureTypeToString(texType) << std::endl;
             return;
           } else {
             std::cerr << "[Model] Failed to load embedded texture "
