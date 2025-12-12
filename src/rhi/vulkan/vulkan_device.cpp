@@ -1,4 +1,5 @@
 #include "vulkan_device.hpp"
+#include <cmath>
 #include <fstream>
 
 namespace RHI {
@@ -1311,7 +1312,92 @@ void VulkanDevice::UpdateTexture(TextureHandle texture, const void *data,
 }
 
 void VulkanDevice::GenerateMipmaps(TextureHandle texture) {
-  // TODO: Implement using vkCmdBlitImage
+  auto it = textures.find(texture.id);
+  if (it == textures.end())
+    return;
+
+  VulkanTexture &tex = it->second;
+  int32_t mipWidth = tex.width;
+  int32_t mipHeight = tex.height;
+
+  // Calculate number of mip levels
+  uint32_t mipLevels = static_cast<uint32_t>(std::floor(
+                           std::log2(std::max(mipWidth, mipHeight)))) +
+                       1;
+
+  VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+  VkImageMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.image = tex.image;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.baseArrayLayer = 0;
+  barrier.subresourceRange.layerCount = 1;
+  barrier.subresourceRange.levelCount = 1;
+
+  for (uint32_t i = 1; i < mipLevels; i++) {
+    // Transition previous level to TRANSFER_SRC
+    barrier.subresourceRange.baseMipLevel = i - 1;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &barrier);
+
+    // Setup blit from level i-1 to level i
+    VkImageBlit blit{};
+    blit.srcOffsets[0] = {0, 0, 0};
+    blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
+    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.srcSubresource.mipLevel = i - 1;
+    blit.srcSubresource.baseArrayLayer = 0;
+    blit.srcSubresource.layerCount = 1;
+    blit.dstOffsets[0] = {0, 0, 0};
+    blit.dstOffsets[1] = {mipWidth > 1 ? mipWidth / 2 : 1,
+                          mipHeight > 1 ? mipHeight / 2 : 1, 1};
+    blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.dstSubresource.mipLevel = i;
+    blit.dstSubresource.baseArrayLayer = 0;
+    blit.dstSubresource.layerCount = 1;
+
+    vkCmdBlitImage(commandBuffer, tex.image,
+                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex.image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                   VK_FILTER_LINEAR);
+
+    // Transition previous level to SHADER_READ_ONLY
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+
+    if (mipWidth > 1)
+      mipWidth /= 2;
+    if (mipHeight > 1)
+      mipHeight /= 2;
+  }
+
+  // Transition last mip level to SHADER_READ_ONLY
+  barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+
+  endSingleTimeCommands(commandBuffer);
 }
 
 void VulkanDevice::DestroyTexture(TextureHandle texture) {
@@ -1405,9 +1491,15 @@ VulkanDevice::CreateShader(const std::vector<ShaderDescriptor> &stages) {
 
   // Fallback: load from files if descriptors didn't provide SPIR-V
   if (vertCode.empty()) {
+    std::cerr
+        << "[Vulkan] WARNING: No vertex SPIR-V provided, using fallback shader"
+        << std::endl;
     vertCode = readSpirvFile("shaders/vulkan/cube.vert.spv");
   }
   if (fragCode.empty()) {
+    std::cerr << "[Vulkan] WARNING: No fragment SPIR-V provided, using "
+                 "fallback shader"
+              << std::endl;
     fragCode = readSpirvFile("shaders/vulkan/cube.frag.spv");
   }
 
@@ -1680,8 +1772,10 @@ PipelineHandle VulkanDevice::CreatePipeline(const PipelineDescriptor &desc,
   }
 
   PipelineHandle handle{nextId++};
+  vkPipeline.shader = shader;
   pipelines[handle.id] = vkPipeline;
-  std::cout << "[Vulkan] Graphics pipeline created" << std::endl;
+  std::cout << "[Vulkan] Graphics pipeline created (id=" << handle.id << ")"
+            << std::endl;
   return handle;
 }
 
@@ -1712,8 +1806,129 @@ void VulkanDevice::DestroyVertexArray(VertexArrayHandle vao) {
 
 FramebufferHandle
 VulkanDevice::CreateFramebuffer(const FramebufferDescriptor &desc) {
-  // TODO: Implement
-  return FramebufferHandle{nextId++};
+  VulkanFramebuffer vkFb{};
+  vkFb.width = desc.width;
+  vkFb.height = desc.height;
+  vkFb.hasDepth = desc.hasDepth;
+
+  std::vector<VkAttachmentDescription> attachments;
+  std::vector<VkAttachmentReference> colorRefs;
+  std::vector<VkImageView> attachmentViews;
+
+  // Color attachments
+  for (size_t i = 0; i < desc.colorAttachments.size(); ++i) {
+    auto texIt = textures.find(desc.colorAttachments[i].texture.id);
+    if (texIt == textures.end()) {
+      std::cerr
+          << "[Vulkan] CreateFramebuffer: invalid color attachment texture"
+          << std::endl;
+      continue;
+    }
+
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = texIt->second.format;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = static_cast<uint32_t>(attachments.size());
+    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    attachments.push_back(colorAttachment);
+    colorRefs.push_back(colorRef);
+    attachmentViews.push_back(texIt->second.imageView);
+    vkFb.colorAttachments.push_back(desc.colorAttachments[i].texture);
+  }
+
+  // Depth attachment
+  VkAttachmentReference depthRef{};
+  if (desc.hasDepth && IsValid(desc.depthAttachment.texture)) {
+    auto texIt = textures.find(desc.depthAttachment.texture.id);
+    if (texIt != textures.end()) {
+      VkAttachmentDescription depthAttachment{};
+      depthAttachment.format = texIt->second.format;
+      depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+      depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+      depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+      depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+      depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+      depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      depthAttachment.finalLayout =
+          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+      depthRef.attachment = static_cast<uint32_t>(attachments.size());
+      depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+      attachments.push_back(depthAttachment);
+      attachmentViews.push_back(texIt->second.imageView);
+      vkFb.depthAttachment = desc.depthAttachment.texture;
+    }
+  }
+
+  // Create render pass for this framebuffer
+  VkSubpassDescription subpass{};
+  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass.colorAttachmentCount = static_cast<uint32_t>(colorRefs.size());
+  subpass.pColorAttachments = colorRefs.data();
+  subpass.pDepthStencilAttachment =
+      (desc.hasDepth && IsValid(desc.depthAttachment.texture)) ? &depthRef
+                                                               : nullptr;
+
+  VkSubpassDependency dependency{};
+  dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+  dependency.dstSubpass = 0;
+  dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependency.srcAccessMask = 0;
+  dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+  VkRenderPassCreateInfo renderPassInfo{};
+  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+  renderPassInfo.pAttachments = attachments.data();
+  renderPassInfo.subpassCount = 1;
+  renderPassInfo.pSubpasses = &subpass;
+  renderPassInfo.dependencyCount = 1;
+  renderPassInfo.pDependencies = &dependency;
+
+  if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &vkFb.renderPass) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create framebuffer render pass"
+              << std::endl;
+    return FramebufferHandle{0};
+  }
+  vkFb.ownsRenderPass = true;
+
+  // Create framebuffer
+  VkFramebufferCreateInfo fbInfo{};
+  fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+  fbInfo.renderPass = vkFb.renderPass;
+  fbInfo.attachmentCount = static_cast<uint32_t>(attachmentViews.size());
+  fbInfo.pAttachments = attachmentViews.data();
+  fbInfo.width = desc.width;
+  fbInfo.height = desc.height;
+  fbInfo.layers = 1;
+
+  if (vkCreateFramebuffer(device, &fbInfo, nullptr, &vkFb.framebuffer) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create framebuffer" << std::endl;
+    vkDestroyRenderPass(device, vkFb.renderPass, nullptr);
+    return FramebufferHandle{0};
+  }
+
+  FramebufferHandle handle{nextId++};
+  framebuffers[handle.id] = vkFb;
+  std::cout << "[Vulkan] Framebuffer created (id=" << handle.id << ", "
+            << desc.width << "x" << desc.height << ")" << std::endl;
+  return handle;
 }
 
 void VulkanDevice::AttachTexture(FramebufferHandle framebuffer,
@@ -1725,49 +1940,140 @@ void VulkanDevice::AttachTexture(FramebufferHandle framebuffer,
 TextureHandle
 VulkanDevice::GetFramebufferTexture(FramebufferHandle framebuffer,
                                     FramebufferAttachment attachment) {
+  auto it = framebuffers.find(framebuffer.id);
+  if (it == framebuffers.end())
+    return TextureHandle{0};
+
+  if (attachment == FramebufferAttachment::Depth ||
+      attachment == FramebufferAttachment::DepthStencil) {
+    return it->second.depthAttachment;
+  }
+
+  int colorIndex = static_cast<int>(attachment) -
+                   static_cast<int>(FramebufferAttachment::Color0);
+  if (colorIndex >= 0 &&
+      colorIndex < static_cast<int>(it->second.colorAttachments.size())) {
+    return it->second.colorAttachments[colorIndex];
+  }
   return TextureHandle{0};
 }
 
 void VulkanDevice::ResizeFramebuffer(FramebufferHandle framebuffer,
                                      uint32_t width, uint32_t height) {
-  // TODO: Implement
+  auto it = framebuffers.find(framebuffer.id);
+  if (it == framebuffers.end())
+    return;
+
+  // Store old attachment handles
+  auto colorAttachments = it->second.colorAttachments;
+  auto depthAttachment = it->second.depthAttachment;
+  bool hasDepth = it->second.hasDepth;
+
+  // Destroy old framebuffer (but not the render pass if we'll reuse it)
+  if (it->second.framebuffer != VK_NULL_HANDLE) {
+    vkDestroyFramebuffer(device, it->second.framebuffer, nullptr);
+    it->second.framebuffer = VK_NULL_HANDLE;
+  }
+
+  // Update dimensions
+  it->second.width = width;
+  it->second.height = height;
+
+  // Rebuild attachment views
+  std::vector<VkImageView> attachmentViews;
+  for (const auto &texHandle : colorAttachments) {
+    auto texIt = textures.find(texHandle.id);
+    if (texIt != textures.end()) {
+      attachmentViews.push_back(texIt->second.imageView);
+    }
+  }
+  if (hasDepth && IsValid(depthAttachment)) {
+    auto texIt = textures.find(depthAttachment.id);
+    if (texIt != textures.end()) {
+      attachmentViews.push_back(texIt->second.imageView);
+    }
+  }
+
+  // Recreate framebuffer
+  VkFramebufferCreateInfo fbInfo{};
+  fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+  fbInfo.renderPass = it->second.renderPass;
+  fbInfo.attachmentCount = static_cast<uint32_t>(attachmentViews.size());
+  fbInfo.pAttachments = attachmentViews.data();
+  fbInfo.width = width;
+  fbInfo.height = height;
+  fbInfo.layers = 1;
+
+  if (vkCreateFramebuffer(device, &fbInfo, nullptr, &it->second.framebuffer) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to resize framebuffer" << std::endl;
+  }
 }
 
 void VulkanDevice::DestroyFramebuffer(FramebufferHandle framebuffer) {
-  // TODO: Implement
+  auto it = framebuffers.find(framebuffer.id);
+  if (it == framebuffers.end())
+    return;
+
+  if (it->second.framebuffer != VK_NULL_HANDLE) {
+    vkDestroyFramebuffer(device, it->second.framebuffer, nullptr);
+  }
+  if (it->second.ownsRenderPass && it->second.renderPass != VK_NULL_HANDLE) {
+    vkDestroyRenderPass(device, it->second.renderPass, nullptr);
+  }
+  framebuffers.erase(it);
 }
 
 void VulkanDevice::SetViewport(const Viewport &viewport) {
-  // Set during command buffer recording
+  cachedViewport = viewport;
+  viewportDirty = true;
 }
 
 void VulkanDevice::SetScissor(const Scissor &scissor) {
-  // Set during command buffer recording
+  cachedScissor = scissor;
+  scissorDirty = true;
 }
 
 void VulkanDevice::DisableScissor() {
-  // No-op for now
+  // Set scissor to match viewport (effectively disabling scissor test)
+  cachedScissor.x = static_cast<int>(cachedViewport.x);
+  cachedScissor.y = static_cast<int>(cachedViewport.y);
+  cachedScissor.width = static_cast<uint32_t>(cachedViewport.width);
+  cachedScissor.height = static_cast<uint32_t>(cachedViewport.height);
+  scissorDirty = true;
 }
 
 void VulkanDevice::Clear(bool color, bool depth, bool stencil) {
-  // Handled in render pass
+  // Handled in render pass load operations
 }
 
 void VulkanDevice::SetClearColor(const ClearColor &color) {
   clearColor = color;
 }
 
-void VulkanDevice::SetClearDepth(float depth) {
-  // TODO: Implement
-}
+void VulkanDevice::SetClearDepth(float depth) { clearDepthValue = depth; }
 
 void VulkanDevice::BindPipeline(PipelineHandle pipeline) {
+  if (pipeline.id == 0) {
+    std::cerr << "[Vulkan] BindPipeline called with invalid handle"
+              << std::endl;
+    return;
+  }
+
   currentPipeline = pipeline;
 
   auto it = pipelines.find(pipeline.id);
   if (it != pipelines.end()) {
     vkCmdBindPipeline(commandBuffers[currentFrame],
                       VK_PIPELINE_BIND_POINT_GRAPHICS, it->second.pipeline);
+
+    // Bind descriptor sets with the pipeline layout
+    vkCmdBindDescriptorSets(commandBuffers[currentFrame],
+                            VK_PIPELINE_BIND_POINT_GRAPHICS, it->second.layout,
+                            0, 1, &descriptorSets[currentFrame], 0, nullptr);
+  } else {
+    std::cerr << "[Vulkan] BindPipeline: pipeline id=" << pipeline.id
+              << " not found" << std::endl;
   }
 }
 
@@ -1777,7 +2083,20 @@ void VulkanDevice::BindVertexArray(VertexArrayHandle vao) {
 }
 
 void VulkanDevice::BindFramebuffer(FramebufferHandle framebuffer) {
-  // TODO: Implement
+  // Handle 0 = default framebuffer (swapchain)
+  if (framebuffer.id == 0) {
+    currentFramebuffer = FramebufferHandle{0};
+    return;
+  }
+
+  auto it = framebuffers.find(framebuffer.id);
+  if (it == framebuffers.end()) {
+    std::cerr << "[Vulkan] BindFramebuffer: framebuffer id=" << framebuffer.id
+              << " not found" << std::endl;
+    return;
+  }
+
+  currentFramebuffer = framebuffer;
 }
 
 void VulkanDevice::BindTexture(uint32_t slot, TextureHandle texture) {
@@ -1932,11 +2251,33 @@ void VulkanDevice::SetUniformMatrix4(ShaderHandle shader,
   // Copy matrix to cached UBO based on uniform name
   if (name == "model" || name.find("model") != std::string::npos) {
     memcpy(cachedUbo.model, matrix, sizeof(float) * 16);
+    // Debug: Print model matrix translation to verify transform
+    static bool firstModel = true;
+    if (firstModel) {
+      std::cout << "[Vulkan] First Model Transform: pos=[" << matrix[12] << ", "
+                << matrix[13] << ", " << matrix[14] << "]" << std::endl;
+      firstModel = false;
+    }
   } else if (name == "view" || name.find("view") != std::string::npos) {
     memcpy(cachedUbo.view, matrix, sizeof(float) * 16);
+    // Debug: Print view matrix translation (camera position)
+    static bool firstView = true;
+    if (firstView) {
+      std::cout << "[Vulkan] First View Matrix: [" << matrix[12] << ", "
+                << matrix[13] << ", " << matrix[14] << "]" << std::endl;
+      firstView = false;
+    }
   } else if (name == "projection" || name == "proj" ||
              name.find("proj") != std::string::npos) {
     memcpy(cachedUbo.proj, matrix, sizeof(float) * 16);
+    // Debug: Print projection matrix to verify values
+    static bool firstProj = true;
+    if (firstProj) {
+      std::cout << "[Vulkan] First Proj Matrix: [" << matrix[0] << ", "
+                << matrix[5] << ", " << matrix[10] << ", " << matrix[14] << "]"
+                << std::endl;
+      firstProj = false;
+    }
   }
 
   // Copy cached UBO to mapped buffer for current frame
@@ -1999,6 +2340,14 @@ void VulkanDevice::DrawIndexed(const DrawIndexedCommand &cmd) {
     // Note: Push constants disabled for unified shaders (all data in UBO)
   }
 
+  // Sync cached UBO to current frame's buffer right before drawing
+  // This ensures all SetUniform calls from this frame are reflected
+  if (currentFrame < uniformBuffersMapped.size() &&
+      uniformBuffersMapped[currentFrame]) {
+    memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
+           sizeof(UniformBufferObject));
+  }
+
   vkCmdDrawIndexed(commandBuffers[currentFrame], cmd.indexCount,
                    cmd.instanceCount, cmd.firstIndex, cmd.vertexOffset,
                    cmd.firstInstance);
@@ -2047,19 +2396,47 @@ bool VulkanDevice::BeginFrame() {
   vkCmdBeginRenderPass(commandBuffers[currentFrame], &renderPassInfo,
                        VK_SUBPASS_CONTENTS_INLINE);
 
+  // Update cached viewport to match swapchain if not explicitly set
+  if (viewportDirty) {
+    viewportDirty = false;
+  } else {
+    cachedViewport.x = 0.0f;
+    cachedViewport.y = 0.0f;
+    cachedViewport.width = static_cast<int>(swapChainExtent.width);
+    cachedViewport.height = static_cast<int>(swapChainExtent.height);
+  }
+
   VkViewport viewport{};
-  viewport.x = 0.0f;
-  viewport.y = 0.0f;
-  viewport.width = static_cast<float>(swapChainExtent.width);
-  viewport.height = static_cast<float>(swapChainExtent.height);
-  viewport.minDepth = 0.0f;
-  viewport.maxDepth = 1.0f;
+  viewport.x = cachedViewport.x;
+  viewport.y = cachedViewport.y;
+  viewport.width = static_cast<float>(cachedViewport.width);
+  viewport.height = static_cast<float>(cachedViewport.height);
+  viewport.minDepth = cachedViewport.minDepth;
+  viewport.maxDepth = cachedViewport.maxDepth;
   vkCmdSetViewport(commandBuffers[currentFrame], 0, 1, &viewport);
 
+  if (scissorDirty) {
+    scissorDirty = false;
+  } else {
+    cachedScissor.x = 0;
+    cachedScissor.y = 0;
+    cachedScissor.width = swapChainExtent.width;
+    cachedScissor.height = swapChainExtent.height;
+  }
+
   VkRect2D scissor{};
-  scissor.offset = {0, 0};
-  scissor.extent = swapChainExtent;
+  scissor.offset = {cachedScissor.x, cachedScissor.y};
+  scissor.extent = {cachedScissor.width, cachedScissor.height};
   vkCmdSetScissor(commandBuffers[currentFrame], 0, 1, &scissor);
+
+  // Sync cached UBO to current frame's uniform buffer
+  // This ensures that uniforms set in previous frames are available in this
+  // frame
+  if (currentFrame < uniformBuffersMapped.size() &&
+      uniformBuffersMapped[currentFrame]) {
+    memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
+           sizeof(UniformBufferObject));
+  }
 
   return true;
 }

@@ -69,11 +69,23 @@ struct VulkanPipeline {
   VkPipeline pipeline;
   VkPipelineLayout layout;
   VkRenderPass renderPass;
+  ShaderHandle shader;
 };
 
 struct VulkanVertexArray {
   BufferHandle vertexBuffer;
   BufferHandle indexBuffer;
+};
+
+struct VulkanFramebuffer {
+  VkFramebuffer framebuffer = VK_NULL_HANDLE;
+  VkRenderPass renderPass = VK_NULL_HANDLE;
+  uint32_t width = 0;
+  uint32_t height = 0;
+  std::vector<TextureHandle> colorAttachments;
+  TextureHandle depthAttachment;
+  bool hasDepth = false;
+  bool ownsRenderPass = false;
 };
 
 class VulkanDevice : public IDevice {
@@ -121,15 +133,24 @@ private:
   std::unordered_map<uint64_t, VulkanShader> shaders;
   std::unordered_map<uint64_t, VulkanPipeline> pipelines;
   std::unordered_map<uint64_t, VulkanVertexArray> vertexArrays;
+  std::unordered_map<uint64_t, VulkanFramebuffer> framebuffers;
 
   uint64_t nextId = 1;
 
   // Render State
   PipelineHandle currentPipeline;
   VertexArrayHandle currentVAO;
+  FramebufferHandle currentFramebuffer;
   TextureHandle boundTextures[16];
   SamplerHandle boundSamplers[16];
   ClearColor clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+  float clearDepthValue = 1.0f;
+
+  // Cached viewport/scissor for deferred application
+  Viewport cachedViewport = {0.0f, 0.0f, 800, 600, 0.0f, 1.0f};
+  Scissor cachedScissor = {0, 0, 800, 600};
+  bool viewportDirty = true;
+  bool scissorDirty = true;
 
   // Descriptors
   VkDescriptorSetLayout descriptorSetLayout;
