@@ -47,6 +47,11 @@ private:
   int currentMatIndex = 0;
   std::shared_ptr<Entity> playerEntity;
 
+  // FPS Counter
+  float fpsTimer = 0.0f;
+  int frameCount = 0;
+  float currentFPS = 0.0f;
+
 public:
   Application(const std::string &title, int width, int height) {
     window = std::make_unique<Window>(width, height, title);
@@ -165,6 +170,7 @@ private:
     try {
       auto model = std::make_shared<Model>(
           rhiDevice.get(), "models/DamagedHelmet/DamagedHelmet.glb");
+      // "models/car/Intergalactic_Spaceship-(Wavefront).obj");
       if (model->GetMeshCount() > 0)
         materials.push_back(model->GetMesh(0).GetMaterial());
 
@@ -174,9 +180,9 @@ private:
       std::cerr << "[App] Error loading model" << std::endl;
     }
 
-    playerEntity->AddComponent<RotatorScript>(glm::vec3(0, 0, 30));
+    playerEntity->AddComponent<RotatorScript>(glm::vec3(0, 30, 0));
     playerEntity->transform.Position = glm::vec3(0, 0.5f, 0);
-    playerEntity->transform.Rotation = glm::vec3(90, 0, 0);
+    playerEntity->transform.Rotation = glm::vec3(0, 0, 0);
 
     // Floor
     auto floor = activeScene->CreateEntity("Floor");
@@ -246,6 +252,15 @@ private:
   void Update(float dt) {
     if (activeScene)
       activeScene->OnUpdate(dt);
+
+    frameCount++;
+    fpsTimer += dt;
+    if (fpsTimer >= 1.0f) {
+      currentFPS = static_cast<float>(frameCount) / fpsTimer;
+      std::cout << "[App] FPS: " << static_cast<int>(currentFPS) << std::endl;
+      frameCount = 0;
+      fpsTimer = 0.0f;
+    }
   }
 
   void Render() {

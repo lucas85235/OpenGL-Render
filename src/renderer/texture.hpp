@@ -57,12 +57,10 @@ private:
   int width = 0, height = 0, channels = 0;
   bool loaded = false;
 
-  RHI::TextureFormat GetRHIFormat(int chans, TextureType texType) const {
-    if (texType == TextureType::DIFFUSE || texType == TextureType::EMISSION) {
-      return chans == 4 ? RHI::TextureFormat::SRGB8_Alpha8
-                        : RHI::TextureFormat::SRGB8;
-    }
-    return chans == 4 ? RHI::TextureFormat::RGBA8 : RHI::TextureFormat::RGB8;
+  RHI::TextureFormat GetRHIFormat(TextureType texType) const {
+    // Use linear RGBA8 for all textures - gamma correction is done in shader
+    // SRGB formats can cause issues on some Intel drivers
+    return RHI::TextureFormat::SRGB8;
   }
 
   RHI::TextureWrapMode ToRHIWrapMode(TextureWrap wrap) const {
@@ -101,7 +99,7 @@ private:
 
     RHI::TextureDescriptor texDesc;
     texDesc.type = RHI::TextureType::Texture2D;
-    texDesc.format = GetRHIFormat(channels, type);
+    texDesc.format = GetRHIFormat(type);
     texDesc.width = width;
     texDesc.height = height;
     texDesc.depth = 1;
@@ -154,7 +152,8 @@ public:
     type = texType;
     stbi_set_flip_vertically_on_load(params.flipVertically);
     unsigned char *data =
-        stbi_load(filepath.c_str(), &width, &height, &channels, 0);
+        stbi_load(filepath.c_str(), &width, &height, &channels, 4);
+    channels = 4;
 
     if (!data) {
       std::cerr << "[Texture] Failed to load: " << filepath << std::endl;

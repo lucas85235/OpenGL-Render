@@ -149,10 +149,15 @@ private:
     if (targetMat->HasTextureType(texType))
       return;
 
+    std::cout << "[Model] Querying aiTextureType=" << aiType
+              << " count=" << mat->GetTextureCount(aiType) << " for "
+              << TextureTypeToString(texType) << std::endl;
+
     for (unsigned int i = 0; i < mat->GetTextureCount(aiType); i++) {
       aiString str;
       mat->GetTexture(aiType, i, &str);
       std::string filename = std::string(str.C_Str());
+      std::cout << "[Model]   Texture path: " << filename << std::endl;
 
       if (filename.length() > 0 && filename[0] == '*') {
         int textureIndex = std::stoi(filename.substr(1));

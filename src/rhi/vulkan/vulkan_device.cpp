@@ -1200,8 +1200,8 @@ void VulkanDevice::copyBufferToImage(VkBuffer buffer, VkImage image,
 
   VkBufferImageCopy region{};
   region.bufferOffset = 0;
-  region.bufferRowLength = 0;
-  region.bufferImageHeight = 0;
+  region.bufferRowLength = width;    // Explicit row length (pixels per row)
+  region.bufferImageHeight = height; // Explicit image height
   region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   region.imageSubresource.mipLevel = 0;
   region.imageSubresource.baseArrayLayer = 0;
@@ -1221,6 +1221,11 @@ VkImageView VulkanDevice::createImageView(VkImage image, VkFormat format) {
   viewInfo.image = image;
   viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
   viewInfo.format = format;
+  // Explicit component mapping for driver compatibility
+  viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+  viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+  viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+  viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
   viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   viewInfo.subresourceRange.baseMipLevel = 0;
   viewInfo.subresourceRange.levelCount = 1;
@@ -1325,9 +1330,11 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDescriptor &desc) {
   vkTexture.depth = desc.depth;
   vkTexture.format = toVkFormat(desc.format);
 
-  VkDeviceSize imageSize =
-      desc.width * desc.height *
-      4; // Assuming RGBA8 for simplicity, should calculate from format
+  std::cout << "[Vulkan] CreateTexture: " << desc.width << "x" << desc.height
+            << " format=" << static_cast<int>(desc.format) << std::endl;
+
+  VkDeviceSize imageSize = static_cast<VkDeviceSize>(desc.width) *
+                           static_cast<VkDeviceSize>(desc.height) * 4;
 
   VkBuffer stagingBuffer;
   VkDeviceMemory stagingBufferMemory;
@@ -1363,8 +1370,24 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDescriptor &desc) {
 
   if (desc.data) {
     void *data;
-    vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+    VkResult mapResult =
+        vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+    if (mapResult != VK_SUCCESS) {
+      std::cerr << "[Vulkan] Failed to map staging buffer memory" << std::endl;
+      vkDestroyBuffer(device, stagingBuffer, nullptr);
+      vkFreeMemory(device, stagingBufferMemory, nullptr);
+      return TextureHandle{0};
+    }
     memcpy(data, desc.data, static_cast<size_t>(imageSize));
+
+    // Flush memory to ensure GPU visibility (required for non-coherent memory)
+    VkMappedMemoryRange memoryRange{};
+    memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+    memoryRange.memory = stagingBufferMemory;
+    memoryRange.offset = 0;
+    memoryRange.size = VK_WHOLE_SIZE;
+    vkFlushMappedMemoryRanges(device, 1, &memoryRange);
+
     vkUnmapMemory(device, stagingBufferMemory);
   }
 
@@ -1390,6 +1413,7 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDescriptor &desc) {
 
   TextureHandle handle{nextId++};
   textures[handle.id] = vkTexture;
+  std::cout << "[Vulkan] Texture created id=" << handle.id << std::endl;
   return handle;
 }
 
@@ -2586,6 +2610,30 @@ bool VulkanDevice::BeginFrame() {
   }
 
   vkResetFences(device, 1, &inFlightFences[currentFrame]);
+
+  // Reset all texture bindings to dummy texture for this frame
+  // This prevents stale bindings from previous frame
+  VkDescriptorImageInfo dummyImageInfo{};
+  dummyImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  dummyImageInfo.imageView = dummyImageView;
+  dummyImageInfo.sampler = dummySampler;
+
+  std::array<VkWriteDescriptorSet, 6> descriptorWrites{};
+  for (uint32_t i = 0; i < 6; i++) {
+    descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[i].dstSet = descriptorSets[currentFrame];
+    descriptorWrites[i].dstBinding = 1 + i; // bindings 1-6
+    descriptorWrites[i].dstArrayElement = 0;
+    descriptorWrites[i].descriptorType =
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[i].descriptorCount = 1;
+    descriptorWrites[i].pImageInfo = &dummyImageInfo;
+  }
+  vkUpdateDescriptorSets(device, 6, descriptorWrites.data(), 0, nullptr);
+
+  // Reset material flags for this frame
+  cachedPushConstants.materialProps[3] = 0.0f;
+
   vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 
   VkCommandBufferBeginInfo beginInfo{};
