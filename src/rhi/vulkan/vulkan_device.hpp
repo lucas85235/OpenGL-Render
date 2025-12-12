@@ -88,6 +88,13 @@ struct VulkanFramebuffer {
   bool ownsRenderPass = false;
 };
 
+// Push constants for per-draw data (max 128 bytes on most GPUs)
+struct PushConstants {
+  float model[16];        // 64 bytes - model matrix
+  float materialColor[4]; // 16 bytes - albedo.rgb + metallic
+  float materialProps[4]; // 16 bytes - roughness, ao, emission, flags
+};
+
 class VulkanDevice : public IDevice {
 private:
   GLFWwindow *window = nullptr;
@@ -157,14 +164,10 @@ private:
   VkDescriptorPool descriptorPool;
   std::vector<VkDescriptorSet> descriptorSets;
 
-  // Uniform Buffers (one per frame)
+  // Uniform Buffers (one per frame) - scene-wide data only
   struct UniformBufferObject {
-    alignas(16) float model[16];
     alignas(16) float view[16];
     alignas(16) float proj[16];
-    alignas(16) float materialColor[4]; // albedo.rgb + metallic
-    alignas(
-        16) float materialProps[4];  // roughness, ao, emissionStrength, unused
     alignas(16) float lightDir[4];   // direction.xyz + intensity
     alignas(16) float lightColor[4]; // color.rgb + unused
     alignas(16) float viewPos[4];    // position.xyz + unused
@@ -173,8 +176,11 @@ private:
   std::vector<VkDeviceMemory> uniformBuffersMemory;
   std::vector<void *> uniformBuffersMapped;
 
-  // Cached UBO state for updates
+  // Cached UBO state for updates (scene-wide data)
   UniformBufferObject cachedUbo{};
+
+  // Cached push constants for per-draw data
+  PushConstants cachedPushConstants{};
 
   void createDescriptorSetLayout();
   void createUniformBuffers();

@@ -32,42 +32,45 @@ bool VulkanDevice::Initialize() {
   createCommandBuffers();
   createSyncObjects();
 
-  // Initialize matrices to identity
-  memset(cachedUbo.model, 0, sizeof(cachedUbo.model));
+  // Initialize UBO matrices to identity (scene-wide data)
   memset(cachedUbo.view, 0, sizeof(cachedUbo.view));
   memset(cachedUbo.proj, 0, sizeof(cachedUbo.proj));
-  cachedUbo.model[0] = cachedUbo.model[5] = cachedUbo.model[10] =
-      cachedUbo.model[15] = 1.0f;
   cachedUbo.view[0] = cachedUbo.view[5] = cachedUbo.view[10] =
       cachedUbo.view[15] = 1.0f;
   cachedUbo.proj[0] = cachedUbo.proj[5] = cachedUbo.proj[10] =
       cachedUbo.proj[15] = 1.0f;
 
-  // Initialize default material (gold-ish) and light values
-  cachedUbo.materialColor[0] = 1.0f;   // Albedo R
-  cachedUbo.materialColor[1] = 0.765f; // Albedo G
-  cachedUbo.materialColor[2] = 0.336f; // Albedo B
-  cachedUbo.materialColor[3] = 1.0f;   // Metallic
+  // Initialize push constants (per-draw data)
+  memset(cachedPushConstants.model, 0, sizeof(cachedPushConstants.model));
+  cachedPushConstants.model[0] = cachedPushConstants.model[5] =
+      cachedPushConstants.model[10] = cachedPushConstants.model[15] = 1.0f;
 
-  cachedUbo.materialProps[0] = 0.3f; // Roughness
-  cachedUbo.materialProps[1] = 1.0f; // AO
-  cachedUbo.materialProps[2] = 0.0f; // Emission strength
-  cachedUbo.materialProps[3] = 0.0f; // Unused
+  // Initialize default material (gold-ish) in push constants
+  cachedPushConstants.materialColor[0] = 1.0f;   // Albedo R
+  cachedPushConstants.materialColor[1] = 0.765f; // Albedo G
+  cachedPushConstants.materialColor[2] = 0.336f; // Albedo B
+  cachedPushConstants.materialColor[3] = 1.0f;   // Metallic
 
-  cachedUbo.lightDir[0] = -0.2f; // Light direction X (matches OpenGL dirLight)
+  cachedPushConstants.materialProps[0] = 0.3f; // Roughness
+  cachedPushConstants.materialProps[1] = 1.0f; // AO
+  cachedPushConstants.materialProps[2] = 0.0f; // Emission strength
+  cachedPushConstants.materialProps[3] = 0.0f; // Flags
+
+  // Initialize light values in UBO (scene-wide)
+  cachedUbo.lightDir[0] = -0.2f; // Light direction X
   cachedUbo.lightDir[1] = -1.0f; // Light direction Y
   cachedUbo.lightDir[2] = -0.3f; // Light direction Z
-  cachedUbo.lightDir[3] = 3.0f;  // Light intensity (increased)
+  cachedUbo.lightDir[3] = 3.0f;  // Light intensity
 
   cachedUbo.lightColor[0] = 1.0f; // Light color R
   cachedUbo.lightColor[1] = 0.9f; // Light color G
-  cachedUbo.lightColor[2] = 0.8f; // Light color B (warmer like OpenGL sun)
+  cachedUbo.lightColor[2] = 0.8f; // Light color B
   cachedUbo.lightColor[3] = 1.0f; // Unused
 
-  cachedUbo.viewPos[0] = 0.0f;  // View position X
-  cachedUbo.viewPos[1] = 0.0f;  // View position Y
-  cachedUbo.viewPos[2] = 50.0f; // View position Z (matches camera distance)
-  cachedUbo.viewPos[3] = 1.0f;  // Unused
+  cachedUbo.viewPos[0] = 0.0f; // View position X
+  cachedUbo.viewPos[1] = 0.0f; // View position Y
+  cachedUbo.viewPos[2] = 5.0f; // View position Z
+  cachedUbo.viewPos[3] = 1.0f; // Unused
 
   std::cout << "[Vulkan] Device initialized successfully" << std::endl;
   return true;
@@ -1741,16 +1744,20 @@ PipelineHandle VulkanDevice::CreatePipeline(const PipelineDescriptor &desc,
   depthStencil.depthBoundsTestEnable = VK_FALSE;
   depthStencil.stencilTestEnable = VK_FALSE;
 
-  // Note: Unified shaders use UBO for all data, no push constants needed
-  // Push constants disabled for compatibility with unified SPIR-V shaders
+  // Push constant range for per-draw data (model matrix + material)
+  VkPushConstantRange pushConstantRange{};
+  pushConstantRange.stageFlags =
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  pushConstantRange.offset = 0;
+  pushConstantRange.size = sizeof(PushConstants);
 
   // Pipeline layout
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount = 1;
   pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-  pipelineLayoutInfo.pushConstantRangeCount = 0;
-  pipelineLayoutInfo.pPushConstantRanges = nullptr;
+  pipelineLayoutInfo.pushConstantRangeCount = 1;
+  pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
   if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr,
                              &vkPipeline.layout) != VK_SUCCESS) {
@@ -2166,13 +2173,11 @@ void VulkanDevice::BindTexture(uint32_t slot, TextureHandle texture) {
 
   vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
 
-  // Set hasTexture flag in cachedUbo
-  cachedUbo.materialProps[3] = 1.0f;
-  if (currentFrame < uniformBuffersMapped.size() &&
-      uniformBuffersMapped[currentFrame]) {
-    memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
-           sizeof(UniformBufferObject));
-  }
+  // Set hasTexture flag in push constants
+  uint32_t currentFlags =
+      static_cast<uint32_t>(cachedPushConstants.materialProps[3]);
+  currentFlags |= 1u; // FLAG_HAS_DIFFUSE
+  cachedPushConstants.materialProps[3] = static_cast<float>(currentFlags);
 }
 
 void VulkanDevice::BindSampler(uint32_t slot, SamplerHandle sampler) {
@@ -2183,8 +2188,9 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
                               int value) {
   bool updated = false;
 
-  // Get current flags from materialProps.a
-  uint32_t currentFlags = static_cast<uint32_t>(cachedUbo.materialProps[3]);
+  // Get current flags from push constants
+  uint32_t currentFlags =
+      static_cast<uint32_t>(cachedPushConstants.materialProps[3]);
 
   // Handle texture presence flags - pack into materialProps.a as bitfield
   if (name.find("hasTextureDiffuse") != std::string::npos) {
@@ -2235,12 +2241,7 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
   }
 
   if (updated) {
-    cachedUbo.materialProps[3] = static_cast<float>(currentFlags);
-    if (currentFrame < uniformBuffersMapped.size() &&
-        uniformBuffersMapped[currentFrame]) {
-      memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
-             sizeof(UniformBufferObject));
-    }
+    cachedPushConstants.materialProps[3] = static_cast<float>(currentFlags);
   }
 }
 
@@ -2249,17 +2250,17 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
   bool updated = false;
 
   if (name.find("roughness") != std::string::npos) {
-    cachedUbo.materialProps[0] = value;
+    cachedPushConstants.materialProps[0] = value;
     updated = true;
   } else if (name.find("metallic") != std::string::npos) {
-    cachedUbo.materialColor[3] = value;
+    cachedPushConstants.materialColor[3] = value;
     updated = true;
   } else if (name.find("ao") != std::string::npos &&
              name.find("emission") == std::string::npos) {
-    cachedUbo.materialProps[1] = value;
+    cachedPushConstants.materialProps[1] = value;
     updated = true;
   } else if (name.find("emissionStrength") != std::string::npos) {
-    cachedUbo.materialProps[2] = value;
+    cachedPushConstants.materialProps[2] = value;
     updated = true;
   } else if (name.find("dirLight.intensity") != std::string::npos) {
     cachedUbo.lightDir[3] = value;
@@ -2278,9 +2279,9 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
   bool updated = false;
 
   if (name.find("albedo") != std::string::npos && count >= 3) {
-    cachedUbo.materialColor[0] = value[0];
-    cachedUbo.materialColor[1] = value[1];
-    cachedUbo.materialColor[2] = value[2];
+    cachedPushConstants.materialColor[0] = value[0];
+    cachedPushConstants.materialColor[1] = value[1];
+    cachedPushConstants.materialColor[2] = value[2];
     updated = true;
   } else if (name.find("emission") != std::string::npos && count >= 3) {
     // Emission not in current shader but prepared for future
@@ -2319,9 +2320,9 @@ void VulkanDevice::SetUniformMatrix4(ShaderHandle shader,
   if (!matrix)
     return;
 
-  // Copy matrix to cached UBO based on uniform name
+  // Copy matrix to cached state based on uniform name
   if (name == "model" || name.find("model") != std::string::npos) {
-    memcpy(cachedUbo.model, matrix, sizeof(float) * 16);
+    memcpy(cachedPushConstants.model, matrix, sizeof(float) * 16);
     // Debug: Print model matrix translation to verify transform
     static bool firstModel = true;
     if (firstModel) {
@@ -2407,16 +2408,22 @@ void VulkanDevice::DrawIndexed(const DrawIndexedCommand &cmd) {
       vkCmdBindIndexBuffer(commandBuffers[currentFrame], ibIt->second.buffer, 0,
                            indexType);
     }
-
-    // Note: Push constants disabled for unified shaders (all data in UBO)
   }
 
-  // Sync cached UBO to current frame's buffer right before drawing
-  // This ensures all SetUniform calls from this frame are reflected
+  // Sync cached UBO to current frame's buffer (scene-wide data)
   if (currentFrame < uniformBuffersMapped.size() &&
       uniformBuffersMapped[currentFrame]) {
     memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
            sizeof(UniformBufferObject));
+  }
+
+  // Push per-draw data via push constants (use cached values)
+  auto pipeIt = pipelines.find(currentPipeline.id);
+  if (pipeIt != pipelines.end()) {
+    vkCmdPushConstants(commandBuffers[currentFrame], pipeIt->second.layout,
+                       VK_SHADER_STAGE_VERTEX_BIT |
+                           VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0, sizeof(PushConstants), &cachedPushConstants);
   }
 
   vkCmdDrawIndexed(commandBuffers[currentFrame], cmd.indexCount,
