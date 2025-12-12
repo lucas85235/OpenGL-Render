@@ -32,6 +32,17 @@ bool VulkanDevice::Initialize() {
   createCommandBuffers();
   createSyncObjects();
 
+  // Initialize matrices to identity
+  memset(cachedUbo.model, 0, sizeof(cachedUbo.model));
+  memset(cachedUbo.view, 0, sizeof(cachedUbo.view));
+  memset(cachedUbo.proj, 0, sizeof(cachedUbo.proj));
+  cachedUbo.model[0] = cachedUbo.model[5] = cachedUbo.model[10] =
+      cachedUbo.model[15] = 1.0f;
+  cachedUbo.view[0] = cachedUbo.view[5] = cachedUbo.view[10] =
+      cachedUbo.view[15] = 1.0f;
+  cachedUbo.proj[0] = cachedUbo.proj[5] = cachedUbo.proj[10] =
+      cachedUbo.proj[15] = 1.0f;
+
   // Initialize default material (gold-ish) and light values
   cachedUbo.materialColor[0] = 1.0f;   // Albedo R
   cachedUbo.materialColor[1] = 0.765f; // Albedo G
@@ -2170,7 +2181,67 @@ void VulkanDevice::BindSampler(uint32_t slot, SamplerHandle sampler) {
 
 void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
                               int value) {
-  // Currently no int uniforms needed in the UBO
+  bool updated = false;
+
+  // Get current flags from materialProps.a
+  uint32_t currentFlags = static_cast<uint32_t>(cachedUbo.materialProps[3]);
+
+  // Handle texture presence flags - pack into materialProps.a as bitfield
+  if (name.find("hasTextureDiffuse") != std::string::npos) {
+    if (value)
+      currentFlags |= 1u;
+    else
+      currentFlags &= ~1u;
+    updated = true;
+  } else if (name.find("hasTextureNormal") != std::string::npos) {
+    if (value)
+      currentFlags |= 2u;
+    else
+      currentFlags &= ~2u;
+    updated = true;
+  } else if (name.find("hasTextureMetallic") != std::string::npos) {
+    if (value)
+      currentFlags |= 4u;
+    else
+      currentFlags &= ~4u;
+    updated = true;
+  } else if (name.find("hasTextureRoughness") != std::string::npos) {
+    if (value)
+      currentFlags |= 8u;
+    else
+      currentFlags &= ~8u;
+    updated = true;
+  } else if (name.find("hasTextureAO") != std::string::npos) {
+    if (value)
+      currentFlags |= 16u;
+    else
+      currentFlags &= ~16u;
+    updated = true;
+  } else if (name.find("hasTextureEmission") != std::string::npos) {
+    if (value)
+      currentFlags |= 32u;
+    else
+      currentFlags &= ~32u;
+    updated = true;
+  } else if (name.find("useIBL") != std::string::npos) {
+    if (value)
+      currentFlags |= 64u;
+    else
+      currentFlags &= ~64u;
+    updated = true;
+  } else if (name.find("numPointLights") != std::string::npos) {
+    // Store point light count for future use (not in current UBO)
+    updated = false;
+  }
+
+  if (updated) {
+    cachedUbo.materialProps[3] = static_cast<float>(currentFlags);
+    if (currentFrame < uniformBuffersMapped.size() &&
+        uniformBuffersMapped[currentFrame]) {
+      memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
+             sizeof(UniformBufferObject));
+    }
+  }
 }
 
 void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
