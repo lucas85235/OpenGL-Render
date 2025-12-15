@@ -1,5 +1,11 @@
 #version 450
 
+// Point light structure (8 floats per light)
+struct PointLight {
+    vec4 positionIntensity; // xyz = position, w = intensity
+    vec4 colorRadius;       // rgb = color, a = radius
+};
+
 // Scene-wide data (updated once per frame)
 layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 view;
@@ -7,6 +13,11 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec4 lightDir;       // xyz = direction, w = intensity
     vec4 lightColor;     // xyz = color
     vec4 viewPos;        // xyz = camera position
+    
+    // Point lights (4 max)
+    PointLight pointLights[4];
+    int numPointLights;
+    int padding[3];
 } ubo;
 
 // Per-draw data via push constants (updated per mesh)
@@ -155,6 +166,26 @@ void main() {
     vec3 L = normalize(-ubo.lightDir.xyz);
     vec3 radiance = ubo.lightColor.rgb * ubo.lightDir.w;
     Lo += CalcPBRLight(L, V, N, F0, albedo, metallic, roughness, radiance);
+    
+    // Point lights
+    for (int i = 0; i < ubo.numPointLights && i < 4; i++) {
+        vec3 lightPos = ubo.pointLights[i].positionIntensity.xyz;
+        float lightIntensity = ubo.pointLights[i].positionIntensity.w;
+        vec3 lightColor = ubo.pointLights[i].colorRadius.rgb;
+        float lightRadius = ubo.pointLights[i].colorRadius.a;
+        
+        vec3 lightVec = lightPos - fragPos;
+        float distance = length(lightVec);
+        vec3 Li = normalize(lightVec);
+        
+        // Smooth attenuation (inverse square with smooth falloff at radius)
+        float attenuation = 1.0 / (distance * distance + 1.0);
+        float falloff = clamp(1.0 - pow(distance / max(lightRadius, 0.001), 4.0), 0.0, 1.0);
+        falloff = falloff * falloff;
+        
+        vec3 pointRadiance = lightColor * lightIntensity * attenuation * falloff;
+        Lo += CalcPBRLight(Li, V, N, F0, albedo, metallic, roughness, pointRadiance);
+    }
     
     // Ambient / IBL
     vec3 ambient = vec3(0.0);

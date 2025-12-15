@@ -73,6 +73,10 @@ bool VulkanDevice::Initialize() {
   cachedUbo.viewPos[2] = 5.0f; // View position Z
   cachedUbo.viewPos[3] = 1.0f; // Unused
 
+  // Initialize point lights
+  cachedUbo.numPointLights = 0;
+  memset(cachedUbo.pointLights, 0, sizeof(cachedUbo.pointLights));
+
   std::cout << "[Vulkan] Device initialized successfully" << std::endl;
   return true;
 }
@@ -2425,8 +2429,13 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
       currentFlags &= ~64u;
     updated = true;
   } else if (name.find("numPointLights") != std::string::npos) {
-    // Store point light count for future use (not in current UBO)
-    updated = false;
+    cachedUbo.numPointLights = value;
+    // Sync UBO to GPU
+    if (currentFrame < uniformBuffersMapped.size() &&
+        uniformBuffersMapped[currentFrame]) {
+      memcpy(uniformBuffersMapped[currentFrame], &cachedUbo,
+             sizeof(UniformBufferObject));
+    }
   }
 
   if (updated) {
@@ -2454,6 +2463,25 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
   } else if (name.find("dirLight.intensity") != std::string::npos) {
     cachedUbo.lightDir[3] = value;
     updated = true;
+  } else if (name.find("numPointLights") != std::string::npos) {
+    cachedUbo.numPointLights = static_cast<int>(value);
+    updated = true;
+  } else if (name.find("pointLights[") != std::string::npos) {
+    // Extract light index from name like "pointLights[0].intensity"
+    size_t start = name.find('[') + 1;
+    size_t end = name.find(']');
+    if (start != std::string::npos && end != std::string::npos) {
+      int idx = std::stoi(name.substr(start, end - start));
+      if (idx >= 0 && idx < 4) {
+        if (name.find(".intensity") != std::string::npos) {
+          cachedUbo.pointLights[idx][3] = value; // pos.w = intensity
+          updated = true;
+        } else if (name.find(".radius") != std::string::npos) {
+          cachedUbo.pointLights[idx][7] = value; // color.w = radius
+          updated = true;
+        }
+      }
+    }
   }
 
   if (updated && currentFrame < uniformBuffersMapped.size() &&
@@ -2494,6 +2522,26 @@ void VulkanDevice::SetUniform(ShaderHandle shader, const std::string &name,
     cachedUbo.lightColor[1] = value[1];
     cachedUbo.lightColor[2] = value[2];
     updated = true;
+  } else if (name.find("pointLights[") != std::string::npos && count >= 3) {
+    // Extract light index from name like "pointLights[0].position"
+    size_t start = name.find('[') + 1;
+    size_t end = name.find(']');
+    if (start != std::string::npos && end != std::string::npos) {
+      int idx = std::stoi(name.substr(start, end - start));
+      if (idx >= 0 && idx < 4) {
+        if (name.find(".position") != std::string::npos) {
+          cachedUbo.pointLights[idx][0] = value[0]; // pos.x
+          cachedUbo.pointLights[idx][1] = value[1]; // pos.y
+          cachedUbo.pointLights[idx][2] = value[2]; // pos.z
+          updated = true;
+        } else if (name.find(".color") != std::string::npos) {
+          cachedUbo.pointLights[idx][4] = value[0]; // color.r
+          cachedUbo.pointLights[idx][5] = value[1]; // color.g
+          cachedUbo.pointLights[idx][6] = value[2]; // color.b
+          updated = true;
+        }
+      }
+    }
   }
 
   if (updated && currentFrame < uniformBuffersMapped.size() &&

@@ -171,6 +171,11 @@ private:
     alignas(16) float lightDir[4];   // direction.xyz + intensity
     alignas(16) float lightColor[4]; // color.rgb + unused
     alignas(16) float viewPos[4];    // position.xyz + unused
+
+    // Point lights (4 max) - position.xyz + intensity, color.rgb + radius
+    alignas(16) float pointLights[4][8]; // 4 lights * (pos4 + color4)
+    alignas(4) int numPointLights;
+    alignas(4) int padding[3]; // Align to 16 bytes
   };
   std::vector<VkBuffer> uniformBuffers;
   std::vector<VkDeviceMemory> uniformBuffersMemory;
