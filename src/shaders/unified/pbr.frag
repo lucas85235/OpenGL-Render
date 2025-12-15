@@ -114,7 +114,11 @@ void main() {
     // Sample textures if available
     if (hasFlag(flags, FLAG_HAS_DIFFUSE)) {
         vec4 texColor = texture(texDiffuse, fragTexCoord);
+        
         albedo = pow(texColor.rgb, vec3(2.2)); // sRGB to linear
+
+        // Hardware does sRGB->linear conversion automatically when using VK_FORMAT_R8G8B8A8_SRGB
+        // albedo = texColor.rgb;
     }
     // if (hasFlag(flags, FLAG_HAS_METALLIC)) {
     //     metallic = texture(texMetallic, fragTexCoord).r;

@@ -58,9 +58,15 @@ private:
   bool loaded = false;
 
   RHI::TextureFormat GetRHIFormat(TextureType texType) const {
-    // Use linear RGBA8 for all textures - gamma correction is done in shader
-    // SRGB formats can cause issues on some Intel drivers
-    return RHI::TextureFormat::SRGB8;
+    // Color textures need SRGB for correct gamma handling
+    // Data textures (normal, metallic, roughness, ao) must be linear
+    switch (texType) {
+    case TextureType::DIFFUSE:
+    case TextureType::EMISSION:
+      return RHI::TextureFormat::SRGB8_Alpha8;
+    default:
+      return RHI::TextureFormat::RGBA8; // Linear for data textures
+    }
   }
 
   RHI::TextureWrapMode ToRHIWrapMode(TextureWrap wrap) const {

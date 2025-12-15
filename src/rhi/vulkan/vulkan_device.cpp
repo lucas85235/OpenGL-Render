@@ -1137,8 +1137,15 @@ void VulkanDevice::createImage(uint32_t width, uint32_t height, VkFormat format,
   VkMemoryRequirements memRequirements;
   vkGetImageMemoryRequirements(device, image, &memRequirements);
 
+  // Use dedicated allocation to prevent memory overlap on Intel UMA
+  VkMemoryDedicatedAllocateInfo dedicatedInfo{};
+  dedicatedInfo.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+  dedicatedInfo.image = image;
+  dedicatedInfo.buffer = VK_NULL_HANDLE;
+
   VkMemoryAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.pNext = &dedicatedInfo; // Chain dedicated allocation
   allocInfo.allocationSize = memRequirements.size;
   allocInfo.memoryTypeIndex =
       findMemoryType(memRequirements.memoryTypeBits, properties);
@@ -1149,6 +1156,12 @@ void VulkanDevice::createImage(uint32_t width, uint32_t height, VkFormat format,
   }
 
   vkBindImageMemory(device, image, imageMemory, 0);
+
+  std::cout << "[Vulkan] createImage: " << width << "x" << height
+            << " format=" << format
+            << " image=" << reinterpret_cast<uint64_t>(image)
+            << " mem=" << reinterpret_cast<uint64_t>(imageMemory)
+            << " size=" << memRequirements.size << std::endl;
 }
 
 void VulkanDevice::transitionImageLayout(VkImage image, VkFormat format,
@@ -1200,8 +1213,8 @@ void VulkanDevice::copyBufferToImage(VkBuffer buffer, VkImage image,
 
   VkBufferImageCopy region{};
   region.bufferOffset = 0;
-  region.bufferRowLength = width;    // Explicit row length (pixels per row)
-  region.bufferImageHeight = height; // Explicit image height
+  region.bufferRowLength = 0;   // 0 = tightly packed (no padding between rows)
+  region.bufferImageHeight = 0; // 0 = tightly packed (contiguous image data)
   region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   region.imageSubresource.mipLevel = 0;
   region.imageSubresource.baseArrayLayer = 0;
@@ -1353,6 +1366,10 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDescriptor &desc) {
   VkMemoryRequirements memRequirements;
   vkGetBufferMemoryRequirements(device, stagingBuffer, &memRequirements);
 
+  std::cout << "[Vulkan] Staging buffer: requested=" << imageSize
+            << " bytes, driver requires=" << memRequirements.size
+            << " bytes, alignment=" << memRequirements.alignment << std::endl;
+
   VkMemoryAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   allocInfo.allocationSize = memRequirements.size;
@@ -1380,13 +1397,12 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDescriptor &desc) {
     }
     memcpy(data, desc.data, static_cast<size_t>(imageSize));
 
-    // Flush memory to ensure GPU visibility (required for non-coherent memory)
-    VkMappedMemoryRange memoryRange{};
-    memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-    memoryRange.memory = stagingBufferMemory;
-    memoryRange.offset = 0;
-    memoryRange.size = VK_WHOLE_SIZE;
-    vkFlushMappedMemoryRanges(device, 1, &memoryRange);
+    // Log first few pixels for debugging
+    const unsigned char *srcData =
+        static_cast<const unsigned char *>(desc.data);
+    std::cout << "[Vulkan] Texture upload: first pixel RGBA = ("
+              << (int)srcData[0] << ", " << (int)srcData[1] << ", "
+              << (int)srcData[2] << ", " << (int)srcData[3] << ")" << std::endl;
 
     vkUnmapMemory(device, stagingBufferMemory);
   }
@@ -1405,6 +1421,9 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDescriptor &desc) {
   transitionImageLayout(vkTexture.image, vkTexture.format,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  // Explicit sync before destroying staging buffer
+  vkDeviceWaitIdle(device);
 
   vkDestroyBuffer(device, stagingBuffer, nullptr);
   vkFreeMemory(device, stagingBufferMemory, nullptr);
@@ -1473,6 +1492,16 @@ void VulkanDevice::GenerateMipmaps(TextureHandle texture) {
     return;
 
   VulkanTexture &tex = it->second;
+
+  // FIXME: Currently the VkImage is created with mipLevels=1
+  // Generating mipmaps on an image without allocated mip storage is UB
+  // This needs to be fixed by creating images with proper mip level count
+  std::cout << "[Vulkan] GenerateMipmaps: skipping (image has only 1 mip level)"
+            << std::endl;
+
+  // Image is already in SHADER_READ_ONLY_OPTIMAL from CreateTexture
+  return;
+
   int32_t mipWidth = tex.width;
   int32_t mipHeight = tex.height;
 
