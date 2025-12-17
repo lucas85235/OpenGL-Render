@@ -1891,13 +1891,13 @@ VulkanDevice::CreateShader(const std::vector<ShaderDescriptor> &stages) {
     std::cerr
         << "[Vulkan] WARNING: No vertex SPIR-V provided, using fallback shader"
         << std::endl;
-    vertCode = readSpirvFile("shaders/vulkan/cube.vert.spv");
+    vertCode = readSpirvFile("shaders/cube.vert.spv");
   }
   if (fragCode.empty()) {
     std::cerr << "[Vulkan] WARNING: No fragment SPIR-V provided, using "
                  "fallback shader"
               << std::endl;
-    fragCode = readSpirvFile("shaders/vulkan/cube.frag.spv");
+    fragCode = readSpirvFile("shaders/cube.frag.spv");
   }
 
   if (vertCode.empty() || fragCode.empty()) {
@@ -3409,8 +3409,8 @@ void VulkanDevice::initializeSkyboxResources() {
     return buffer;
   };
 
-  auto vertCode = loadSpirv("shaders/unified/skybox.vert.spv");
-  auto fragCode = loadSpirv("shaders/unified/skybox.frag.spv");
+  auto vertCode = loadSpirv("shaders/skybox.vert.spv");
+  auto fragCode = loadSpirv("shaders/skybox.frag.spv");
   if (vertCode.empty() || fragCode.empty()) {
     std::cerr << "[Vulkan] Failed to load skybox shaders" << std::endl;
     return;

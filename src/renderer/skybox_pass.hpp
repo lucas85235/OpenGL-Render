@@ -2,11 +2,14 @@
 #define SKYBOX_PASS_HPP
 
 #include "../rhi/rhi_device.h"
+#include "../rhi/shader_preprocessor.hpp"
 #include "shader.hpp"
+#include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <memory>
+#include <sstream>
 
 /**
  * @brief RHI-based skybox rendering pass
@@ -99,6 +102,7 @@ public:
     shader = std::make_unique<Shader>(device);
 
     if (device->GetAPI() == RHI::API::Vulkan) {
+      // Vulkan: Load pre-compiled SPIR-V
       if (!shader->CompileFromSPIRV(shaderBasePath + "/skybox.vert.spv",
                                     shaderBasePath + "/skybox.frag.spv")) {
         std::cerr << "[SkyboxPass] Failed to compile Vulkan shaders"
@@ -106,8 +110,28 @@ public:
         return false;
       }
     } else {
-      if (!shader->CompileFromFile(shaderBasePath + "/skybox.vert",
-                                   shaderBasePath + "/skybox.frag")) {
+      // OpenGL: Runtime compile from .shader source
+      std::string shaderPath = shaderBasePath + "/skybox.shader";
+      std::ifstream file(shaderPath);
+      if (!file.is_open()) {
+        std::cerr << "[SkyboxPass] Failed to open: " << shaderPath << std::endl;
+        return false;
+      }
+      std::stringstream buffer;
+      buffer << file.rdbuf();
+      std::string source = buffer.str();
+      file.close();
+
+      RHI::ShaderStageSource stages =
+          RHI::ShaderPreprocessor::Process(source, RHI::API::OpenGL, 450);
+
+      if (stages.vertex.empty() || stages.fragment.empty()) {
+        std::cerr << "[SkyboxPass] Failed to preprocess shader" << std::endl;
+        return false;
+      }
+
+      if (!shader->CompileFromSource(stages.vertex.c_str(),
+                                     stages.fragment.c_str())) {
         std::cerr << "[SkyboxPass] Failed to compile OpenGL shaders"
                   << std::endl;
         return false;

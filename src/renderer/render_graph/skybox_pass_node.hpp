@@ -14,9 +14,7 @@ public:
 
   bool Initialize(RenderContext *context) override {
     std::string shaderPath =
-        (context->GetAPI() == RHI::API::Vulkan)
-            ? context->GetFileSystem()->GetAbsolutePath("shaders/unified")
-            : context->GetFileSystem()->GetAbsolutePath("shaders");
+        context->GetFileSystem()->GetAbsolutePath("shaders");
     return skyboxPass->Initialize(context->GetDevice(), shaderPath);
   }
 

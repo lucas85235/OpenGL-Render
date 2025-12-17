@@ -112,12 +112,14 @@ private:
     std::shared_ptr<Shader> pbrShaderLoaded;
 
     if (api == RHI::API::Vulkan) {
-      pbrShaderLoaded =
-          shaderMgr->LoadShader("pbr", "shaders/unified/pbr.vert.spv",
-                                "shaders/unified/pbr.frag.spv");
+      // Vulkan: Load pre-compiled SPIR-V
+      pbrShaderLoaded = shaderMgr->LoadShader("pbr", "shaders/pbr.vert.spv",
+                                              "shaders/pbr.frag.spv");
     } else {
+      // OpenGL: Runtime compile from .shader source (preprocessor generates
+      // GLSL)
       pbrShaderLoaded =
-          shaderMgr->LoadShader("pbr", "shaders/pbr.vert", "shaders/pbr.frag");
+          shaderMgr->LoadUnifiedShader("pbr", "shaders/pbr.shader");
     }
 
     if (!pbrShaderLoaded) {

@@ -95,64 +95,6 @@ elseif(GLSLANG)
 endif()
 
 if(SHADER_COMPILER)
-    # Vulkan-specific shaders (legacy, for backwards compatibility)
-    set(VULKAN_SHADER_SOURCE_DIR "${CMAKE_SOURCE_DIR}/src/shaders/vulkan")
-    set(VULKAN_SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders/vulkan")
-    
-    # Unified shaders (cross-platform via SPIRV-Cross)
-    set(UNIFIED_SHADER_SOURCE_DIR "${CMAKE_SOURCE_DIR}/src/shaders/unified")
-    set(UNIFIED_SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders/unified")
-    
-    file(MAKE_DIRECTORY ${VULKAN_SHADER_BINARY_DIR})
-    file(MAKE_DIRECTORY ${UNIFIED_SHADER_BINARY_DIR})
-    
-    # Collect all shader sources
-    file(GLOB VULKAN_SHADER_SOURCES 
-        "${VULKAN_SHADER_SOURCE_DIR}/*.vert"
-        "${VULKAN_SHADER_SOURCE_DIR}/*.frag"
-        "${VULKAN_SHADER_SOURCE_DIR}/*.comp"
-        "${VULKAN_SHADER_SOURCE_DIR}/*.geom"
-    )
-    
-    file(GLOB UNIFIED_SHADER_SOURCES
-        "${UNIFIED_SHADER_SOURCE_DIR}/*.vert"
-        "${UNIFIED_SHADER_SOURCE_DIR}/*.frag"
-        "${UNIFIED_SHADER_SOURCE_DIR}/*.comp"
-        "${UNIFIED_SHADER_SOURCE_DIR}/*.geom"
-    )
-    
-    set(SPIRV_OUTPUTS)
-    
-    # Compile Vulkan shaders
-    foreach(SHADER ${VULKAN_SHADER_SOURCES})
-        get_filename_component(SHADER_NAME ${SHADER} NAME)
-        set(SPIRV_OUTPUT "${VULKAN_SHADER_BINARY_DIR}/${SHADER_NAME}.spv")
-        
-        add_custom_command(
-            OUTPUT ${SPIRV_OUTPUT}
-            COMMAND ${SHADER_COMPILER} ${SHADER_COMPILE_FLAGS} ${SHADER} -o ${SPIRV_OUTPUT}
-            DEPENDS ${SHADER}
-            COMMENT "Compiling Vulkan shader: ${SHADER_NAME}"
-        )
-        list(APPEND SPIRV_OUTPUTS ${SPIRV_OUTPUT})
-    endforeach()
-    
-    # Compile Unified shaders
-    foreach(SHADER ${UNIFIED_SHADER_SOURCES})
-        get_filename_component(SHADER_NAME ${SHADER} NAME)
-        set(SPIRV_OUTPUT "${UNIFIED_SHADER_BINARY_DIR}/${SHADER_NAME}.spv")
-        
-        add_custom_command(
-            OUTPUT ${SPIRV_OUTPUT}
-            COMMAND ${SHADER_COMPILER} ${SHADER_COMPILE_FLAGS} ${SHADER} -o ${SPIRV_OUTPUT}
-            DEPENDS ${SHADER}
-            COMMENT "Compiling unified shader: ${SHADER_NAME}"
-        )
-        list(APPEND SPIRV_OUTPUTS ${SPIRV_OUTPUT})
-    endforeach()
-    
-    add_custom_target(compile_shaders ALL DEPENDS ${SPIRV_OUTPUTS})
-    
     # ==========================================
     # Unified Shader Format (.shader -> SPIR-V)
     # Uses Python preprocessor for multi-stage shaders
@@ -163,6 +105,7 @@ if(SHADER_COMPILER)
         set(UNIFIED_SHADER_INPUT_DIR "${CMAKE_SOURCE_DIR}/src/shaders")
         set(UNIFIED_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
         
+        file(MAKE_DIRECTORY ${UNIFIED_SHADER_OUTPUT_DIR})
         file(GLOB SHADER_FILES "${UNIFIED_SHADER_INPUT_DIR}/*.shader")
         
         if(SHADER_FILES)
@@ -184,8 +127,10 @@ if(SHADER_COMPILER)
                 COMMENT "Compiling unified .shader files to SPIR-V"
             )
             
-            add_custom_target(compile_unified_shaders ALL DEPENDS ${UNIFIED_SPIRV_OUTPUTS})
-            message(STATUS "Found unified .shader files - compile_unified_shaders target added")
+            add_custom_target(compile_shaders ALL DEPENDS ${UNIFIED_SPIRV_OUTPUTS})
+            message(STATUS "Found ${CMAKE_MATCH_COUNT} unified .shader files")
+        else()
+            message(WARNING "No .shader files found in ${UNIFIED_SHADER_INPUT_DIR}")
         endif()
     else()
         message(WARNING "Python3 not found - unified .shader compilation disabled")
