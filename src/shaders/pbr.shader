@@ -104,7 +104,9 @@ vec3 CalcPBRLight(vec3 L, vec3 V, vec3 N, vec3 F0, vec3 albedo, float metallic, 
 //--------------------------------------------------------------------
 #pragma begin(resources)
 
-@binding(0) uniform SceneData uScene;
+@binding(0) uniform SceneUBO {
+    SceneData scene;
+} ubo;
 
 @binding(1) uniform sampler2D texDiffuse;
 @binding(2) uniform sampler2D texNormal;
@@ -141,7 +143,7 @@ void main() {
     fragNormal = normalMatrix * inNormal;
     fragTexCoord = inTexCoord;
     
-    gl_Position = uScene.proj * uScene.view * worldPos;
+    gl_Position = ubo.scene.proj * ubo.scene.view * worldPos;
 }
 
 #pragma end(vertex)
@@ -186,7 +188,7 @@ void main() {
     
     // Normals
     vec3 N = normalize(fragNormal);
-    vec3 V = normalize(uScene.viewPos.xyz - fragPos);
+    vec3 V = normalize(ubo.scene.viewPos.xyz - fragPos);
     
     float NdotV = dot(N, V);
     if (NdotV < 0.0) {
@@ -202,16 +204,16 @@ void main() {
     vec3 Lo = vec3(0.0);
     
     // Directional light
-    vec3 L = normalize(-uScene.lightDir.xyz);
-    vec3 radiance = uScene.lightColor.rgb * uScene.lightDir.w;
+    vec3 L = normalize(-ubo.scene.lightDir.xyz);
+    vec3 radiance = ubo.scene.lightColor.rgb * ubo.scene.lightDir.w;
     Lo += CalcPBRLight(L, V, N, F0, albedo, metallic, roughness, radiance);
     
     // Point lights
-    for (int i = 0; i < uScene.numPointLights && i < MAX_POINT_LIGHTS; i++) {
-        vec3 lightPos = uScene.pointLights[i].positionIntensity.xyz;
-        float lightIntensity = uScene.pointLights[i].positionIntensity.w;
-        vec3 lightColor = uScene.pointLights[i].colorRadius.rgb;
-        float lightRadius = uScene.pointLights[i].colorRadius.a;
+    for (int i = 0; i < ubo.scene.numPointLights && i < MAX_POINT_LIGHTS; i++) {
+        vec3 lightPos = ubo.scene.pointLights[i].positionIntensity.xyz;
+        float lightIntensity = ubo.scene.pointLights[i].positionIntensity.w;
+        vec3 lightColor = ubo.scene.pointLights[i].colorRadius.rgb;
+        float lightRadius = ubo.scene.pointLights[i].colorRadius.a;
         
         vec3 lightVec = lightPos - fragPos;
         float distance = length(lightVec);
