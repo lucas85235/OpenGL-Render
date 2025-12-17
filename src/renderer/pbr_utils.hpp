@@ -1,18 +1,14 @@
 #ifndef PBR_UTILS_HPP
 #define PBR_UTILS_HPP
 
-#include <algorithm>
-#include <array>
 #include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 
-#include "../core/filesystem.hpp"
 #include "../rhi/rhi_device.h"
 #include "cpu_cubemap_converter.hpp"
-#include "shader.hpp"
 #include "texture.hpp"
 
 // stb_image is already included via texture.hpp

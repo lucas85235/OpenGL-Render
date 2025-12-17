@@ -13,7 +13,6 @@
 #include "../renderer/render_graph/render_graph.hpp"
 #include "../renderer/render_graph/skybox_pass_node.hpp"
 #include "../scene/components.hpp"
-#include "filesystem.hpp"
 #include "vfs/native_file_system.hpp"
 #include "window.hpp"
 
@@ -29,12 +28,6 @@ private:
   Renderer renderer;
   std::unique_ptr<FrameBuffer> fb;
 
-  // Shaders
-  // Shader pointers are now retrieved from Manager or passed to passes
-  // std::unique_ptr<Shader> pbrShader; // Removed member
-  std::unique_ptr<Shader> screenShader;
-
-  // Skybox
   std::unique_ptr<RenderGraph> renderGraph;
 
   // Environment
@@ -107,9 +100,7 @@ private:
       return false;
     }
 
-    // Note: rhiDevice member removed. Access via context.
     auto rhiDevice = renderContext->GetDevice();
-
     auto info = rhiDevice->GetDeviceInfo();
     std::cout << "[RHI] Renderer: " << info.rendererName << std::endl;
     std::cout << "[RHI] Version: " << info.apiVersion << std::endl;
@@ -119,22 +110,18 @@ private:
         this->fb->Resize(w, h);
     });
 
-    // Compile Shaders
-    // Compile Shaders via Manager
+    // Load shaders
     auto shaderMgr = renderContext->GetShaderManager();
     std::shared_ptr<Shader> pbrShaderLoaded;
 
     if (api == RHI::API::Vulkan) {
-      // Vulkan: Use SPIR-V shaders
-      pbrShaderLoaded = shaderMgr->LoadShader(
-          "pbr", FS::GetPath("shaders/unified/pbr.vert.spv"),
-          FS::GetPath("shaders/unified/pbr.frag.spv"));
+      pbrShaderLoaded =
+          shaderMgr->LoadShader("pbr", "shaders/unified/pbr.vert.spv",
+                                "shaders/unified/pbr.frag.spv");
       std::cout << "[App] Using Vulkan SPIR-V shaders" << std::endl;
     } else {
-      // OpenGL: Use GLSL shaders
       pbrShaderLoaded =
-          shaderMgr->LoadShader("pbr", FS::GetPath("shaders/pbr.vert"),
-                                FS::GetPath("shaders/pbr.frag"));
+          shaderMgr->LoadShader("pbr", "shaders/pbr.vert", "shaders/pbr.frag");
       std::cout << "[App] Using OpenGL GLSL shaders" << std::endl;
     }
 
@@ -142,14 +129,6 @@ private:
       std::cerr << "[App] Failed to load PBR shader" << std::endl;
       return false;
     }
-
-    // screenShader = std::make_unique<Shader>(rhiDevice.get());
-    // screenShader->CompileFromSPIRV(FS::GetPath("shaders/unified/screen.vert.spv"),
-    //                                FS::GetPath("shaders/unified/screen.frag.spv"));
-
-    // skyboxShader = std::make_unique<Shader>(rhiDevice.get());
-    // skyboxShader->CompileFromSPIRV(FS::GetPath("shaders/unified/skybox.vert.spv"),
-    //                                FS::GetPath("shaders/unified/skybox.frag.spv"));
 
     // Setup Renderer
     renderer.Init(renderContext.get(), pbrShaderLoaded.get());
@@ -164,14 +143,8 @@ private:
     // Setup Environment Map
     envMap.Initialize(rhiDevice, fileSystem.get());
 
-    // Setup Render Graph
     renderGraph = std::make_unique<RenderGraph>(renderContext.get());
-
-    // Add Skybox Pass
-    // We pass envMap pointer so the pass can query textures
     renderGraph->AddPass(std::make_unique<SkyboxPassNode>(&envMap));
-
-    // Add PBR Pass
     renderGraph->AddPass(std::make_unique<PBRPassNode>(&renderer));
 
     return true;
@@ -209,7 +182,6 @@ private:
     playerEntity->transform.Position = glm::vec3(0, 0.5f, 0);
     playerEntity->transform.Rotation = glm::vec3(0, 0, 0);
 
-    // Floor
     // Floor
     auto floor = activeScene->CreateEntity("Floor");
     auto floorMesh = std::make_shared<Mesh>(

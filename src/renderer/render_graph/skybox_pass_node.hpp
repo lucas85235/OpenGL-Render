@@ -1,30 +1,22 @@
 #ifndef SKYBOX_PASS_NODE_HPP
 #define SKYBOX_PASS_NODE_HPP
 
-#include "../../core/filesystem.hpp"
-#include "../pbr_utils.hpp" // For EnvironmentMap
+#include "../pbr_utils.hpp"
 #include "../skybox_pass.hpp"
 #include "render_pass.hpp"
 #include <glm/gtc/type_ptr.hpp>
 
 class SkyboxPassNode : public RenderPass {
-private:
-  std::unique_ptr<SkyboxPass> skyboxPass;
-  PBRUtils::EnvironmentMap *envMap = nullptr; // Reference to env map
-
 public:
-  SkyboxPassNode(PBRUtils::EnvironmentMap *env) : envMap(env) {
+  explicit SkyboxPassNode(PBRUtils::EnvironmentMap *env) : envMap(env) {
     skyboxPass = std::make_unique<SkyboxPass>();
   }
 
   bool Initialize(RenderContext *context) override {
-    std::string shaderPath;
-    if (context->GetAPI() == RHI::API::Vulkan) {
-      shaderPath = FS::GetPath("shaders/unified");
-    } else {
-      shaderPath = FS::GetPath("shaders");
-    }
-
+    std::string shaderPath =
+        (context->GetAPI() == RHI::API::Vulkan)
+            ? context->GetFileSystem()->GetAbsolutePath("shaders/unified")
+            : context->GetFileSystem()->GetAbsolutePath("shaders");
     return skyboxPass->Initialize(context->GetDevice(), shaderPath);
   }
 
@@ -38,6 +30,10 @@ public:
   }
 
   std::string GetName() const override { return "SkyboxPass"; }
+
+private:
+  std::unique_ptr<SkyboxPass> skyboxPass;
+  PBRUtils::EnvironmentMap *envMap = nullptr;
 };
 
-#endif // SKYBOX_PASS_NODE_HPP
+#endif
