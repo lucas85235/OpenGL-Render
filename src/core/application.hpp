@@ -9,11 +9,10 @@
 #include "../renderer/model_factory.hpp"
 #include "../renderer/pbr_utils.hpp"
 #include "../renderer/render_context.hpp"
-#include "../renderer/renderer.hpp"
-#include "../renderer/skybox_pass.hpp"
-#include "../rhi/rhi_factory.h"
+#include "../renderer/render_graph/pbr_pass_node.hpp"
+#include "../renderer/render_graph/render_graph.hpp"
+#include "../renderer/render_graph/skybox_pass_node.hpp"
 #include "../scene/components.hpp"
-#include "../scene/scene.hpp"
 #include "filesystem.hpp"
 #include "window.hpp"
 
@@ -23,18 +22,18 @@ private:
 
   // RHI Device
   std::unique_ptr<RenderContext> renderContext;
-  RHI::IDevice *rhiDevice = nullptr; // Cached pointer for convenience
 
   // Core Systems
   Renderer renderer;
   std::unique_ptr<FrameBuffer> fb;
 
   // Shaders
-  std::unique_ptr<Shader> pbrShader;
+  // Shader pointers are now retrieved from Manager or passed to passes
+  // std::unique_ptr<Shader> pbrShader; // Removed member
   std::unique_ptr<Shader> screenShader;
 
   // Skybox
-  std::unique_ptr<SkyboxPass> skyboxPass;
+  std::unique_ptr<RenderGraph> renderGraph;
 
   // Environment
   PBRUtils::EnvironmentMap envMap;
@@ -102,7 +101,9 @@ private:
       std::cerr << "[App] Failed to initialize RenderContext!" << std::endl;
       return false;
     }
-    rhiDevice = renderContext->GetDevice();
+
+    // Note: rhiDevice member removed. Access via context.
+    auto rhiDevice = renderContext->GetDevice();
 
     auto info = rhiDevice->GetDeviceInfo();
     std::cout << "[RHI] Renderer: " << info.rendererName << std::endl;
@@ -114,26 +115,27 @@ private:
     });
 
     // Compile Shaders
-    pbrShader = std::make_unique<Shader>(rhiDevice);
+    // Compile Shaders via Manager
+    auto shaderMgr = renderContext->GetShaderManager();
+    std::shared_ptr<Shader> pbrShaderLoaded;
 
     if (api == RHI::API::Vulkan) {
       // Vulkan: Use SPIR-V shaders
-      if (!pbrShader->CompileFromSPIRV(
-              FS::GetPath("shaders/unified/pbr.vert.spv"),
-              FS::GetPath("shaders/unified/pbr.frag.spv"))) {
-        std::cerr << "[App] Failed to compile Vulkan SPIR-V shaders"
-                  << std::endl;
-        return false;
-      }
+      pbrShaderLoaded = shaderMgr->LoadShader(
+          "pbr", FS::GetPath("shaders/unified/pbr.vert.spv"),
+          FS::GetPath("shaders/unified/pbr.frag.spv"));
       std::cout << "[App] Using Vulkan SPIR-V shaders" << std::endl;
     } else {
       // OpenGL: Use GLSL shaders
-      if (!pbrShader->CompileFromFile(FS::GetPath("shaders/pbr.vert"),
-                                      FS::GetPath("shaders/pbr.frag"))) {
-        std::cerr << "[App] Failed to compile OpenGL GLSL shaders" << std::endl;
-        return false;
-      }
+      pbrShaderLoaded =
+          shaderMgr->LoadShader("pbr", FS::GetPath("shaders/pbr.vert"),
+                                FS::GetPath("shaders/pbr.frag"));
       std::cout << "[App] Using OpenGL GLSL shaders" << std::endl;
+    }
+
+    if (!pbrShaderLoaded) {
+      std::cerr << "[App] Failed to load PBR shader" << std::endl;
+      return false;
     }
 
     // screenShader = std::make_unique<Shader>(rhiDevice.get());
@@ -145,7 +147,7 @@ private:
     //                                FS::GetPath("shaders/unified/skybox.frag.spv"));
 
     // Setup Renderer
-    renderer.Init(renderContext.get(), pbrShader.get());
+    renderer.Init(renderContext.get(), pbrShaderLoaded.get());
 
     // Setup Framebuffer (skip for Vulkan - has its own swapchain)
     if (api == RHI::API::Vulkan) {
@@ -157,15 +159,15 @@ private:
     // Setup Environment Map
     envMap.SetDevice(rhiDevice);
 
-    // Setup Skybox Pass
-    skyboxPass = std::make_unique<SkyboxPass>();
-    std::string shaderPath = (api == RHI::API::Vulkan)
-                                 ? FS::GetPath("shaders/unified")
-                                 : FS::GetPath("shaders");
-    if (!skyboxPass->Initialize(rhiDevice, shaderPath)) {
-      std::cerr << "[App] Failed to initialize SkyboxPass" << std::endl;
-      // Continue without skybox - not fatal
-    }
+    // Setup Render Graph
+    renderGraph = std::make_unique<RenderGraph>(renderContext.get());
+
+    // Add Skybox Pass
+    // We pass envMap pointer so the pass can query textures
+    renderGraph->AddPass(std::make_unique<SkyboxPassNode>(&envMap));
+
+    // Add PBR Pass
+    renderGraph->AddPass(std::make_unique<PBRPassNode>(&renderer));
 
     return true;
   }
@@ -185,9 +187,9 @@ private:
     // Load Model
     playerEntity = activeScene->CreateEntity("Helmet");
     try {
-      auto model =
-          std::make_shared<Model>(rhiDevice, renderContext->GetTextureManager(),
-                                  "models/DamagedHelmet/DamagedHelmet.glb");
+      auto model = std::make_shared<Model>(
+          renderContext->GetDevice(), renderContext->GetTextureManager(),
+          "models/DamagedHelmet/DamagedHelmet.glb");
       // "models/car/Intergalactic_Spaceship-(Wavefront).obj");
       if (model->GetMeshCount() > 0)
         materials.push_back(model->GetMesh(0).GetMaterial());
@@ -203,9 +205,10 @@ private:
     playerEntity->transform.Rotation = glm::vec3(0, 0, 0);
 
     // Floor
+    // Floor
     auto floor = activeScene->CreateEntity("Floor");
-    auto floorMesh =
-        std::make_shared<Mesh>(ModelFactory::CreatePlane(rhiDevice, 1.0f));
+    auto floorMesh = std::make_shared<Mesh>(
+        ModelFactory::CreatePlane(renderContext->GetDevice(), 1.0f));
     auto floorRend = floor->AddComponent<SimpleMeshRenderer>(floorMesh);
     floorRend->SetMaterial(copper);
     floor->transform.Scale = glm::vec3(10.0f);
@@ -282,6 +285,7 @@ private:
   }
 
   void Render() {
+    auto rhiDevice = renderContext->GetDevice();
     rhiDevice->BeginFrame();
 
     glm::mat4 view =
@@ -289,18 +293,15 @@ private:
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), window->GetAspect(),
                                       0.1f, 100.0f);
 
-    // Render skybox FIRST (uses LEQUAL depth, writes at max depth)
-    // This ensures the PBR pipeline state is not corrupted by skybox
-    if (envMap.IsValid()) {
-      rhiDevice->DrawSkybox(envMap.GetCubemap(), envMap.GetSampler(),
-                            glm::value_ptr(view), glm::value_ptr(proj));
-    }
+    // Render Graph Execution
+    RenderPassData passData;
+    passData.view = view;
+    passData.projection = proj;
+    passData.cameraPos = cameraPos;
+    passData.windowWidth = window->GetWidth();
+    passData.windowHeight = window->GetHeight();
 
-    // Now render scene with PBR pipeline (re-binds PBR descriptors)
-    renderer.BeginScene(view, proj, cameraPos);
-    if (activeScene)
-      activeScene->OnRender(renderer);
-    renderer.EndScene();
+    renderGraph->Execute(passData, activeScene.get());
 
     rhiDevice->EndFrame();
   }

@@ -40,6 +40,8 @@ bool RenderContext::Initialize() {
   textureManager = std::make_unique<TextureManager>();
   textureManager->SetDevice(device.get());
 
+  shaderManager = std::make_unique<ShaderManager>(device.get(), api);
+
   return true;
 }
 
@@ -47,6 +49,11 @@ void RenderContext::Shutdown() {
   if (textureManager) {
     textureManager->ClearCache();
     textureManager.reset();
+  }
+
+  if (shaderManager) {
+    shaderManager->Clear();
+    shaderManager.reset();
   }
 
   if (device) {
