@@ -8,9 +8,9 @@
 #include "../renderer/framebuffer.hpp"
 #include "../renderer/model_factory.hpp"
 #include "../renderer/pbr_utils.hpp"
+#include "../renderer/render_context.hpp"
 #include "../renderer/renderer.hpp"
 #include "../renderer/skybox_pass.hpp"
-#include "../rhi/rhi_device.h"
 #include "../rhi/rhi_factory.h"
 #include "../scene/components.hpp"
 #include "../scene/scene.hpp"
@@ -22,7 +22,8 @@ private:
   std::unique_ptr<Window> window;
 
   // RHI Device
-  std::unique_ptr<RHI::IDevice> rhiDevice;
+  std::unique_ptr<RenderContext> renderContext;
+  RHI::IDevice *rhiDevice = nullptr; // Cached pointer for convenience
 
   // Core Systems
   Renderer renderer;
@@ -90,15 +91,14 @@ private:
     if (!window->Init(createGLContext))
       return false;
 
-    // Create RHI Device
-    rhiDevice = RHI::CreateDevice(api, window->GetNativeWindow());
-    if (!rhiDevice) {
-      std::cerr << "[App] Failed to create RHI device!" << std::endl;
+    // Create Render Context
+    renderContext =
+        std::make_unique<RenderContext>(api, window->GetNativeWindow());
+    if (!renderContext->Initialize()) {
+      std::cerr << "[App] Failed to initialize RenderContext!" << std::endl;
       return false;
     }
-
-    // Initialize TextureManager with device
-    TextureManager::GetInstance().SetDevice(rhiDevice.get());
+    rhiDevice = renderContext->GetDevice();
 
     auto info = rhiDevice->GetDeviceInfo();
     std::cout << "[RHI] Renderer: " << info.rendererName << std::endl;
@@ -110,7 +110,7 @@ private:
     });
 
     // Compile Shaders
-    pbrShader = std::make_unique<Shader>(rhiDevice.get());
+    pbrShader = std::make_unique<Shader>(rhiDevice);
 
     if (api == RHI::API::Vulkan) {
       // Vulkan: Use SPIR-V shaders
@@ -141,24 +141,24 @@ private:
     //                                FS::GetPath("shaders/unified/skybox.frag.spv"));
 
     // Setup Renderer
-    renderer.Init(rhiDevice.get(), pbrShader.get());
+    renderer.Init(renderContext.get(), pbrShader.get());
 
     // Setup Framebuffer (skip for Vulkan - has its own swapchain)
     if (api == RHI::API::Vulkan) {
-      fb = std::make_unique<FrameBuffer>(rhiDevice.get(), window->GetWidth(),
+      fb = std::make_unique<FrameBuffer>(rhiDevice, window->GetWidth(),
                                          window->GetHeight());
       fb->Init();
     }
 
     // Setup Environment Map
-    envMap.SetDevice(rhiDevice.get());
+    envMap.SetDevice(rhiDevice);
 
     // Setup Skybox Pass
     skyboxPass = std::make_unique<SkyboxPass>();
     std::string shaderPath = (api == RHI::API::Vulkan)
                                  ? FS::GetPath("shaders/unified")
                                  : FS::GetPath("shaders");
-    if (!skyboxPass->Initialize(rhiDevice.get(), shaderPath)) {
+    if (!skyboxPass->Initialize(rhiDevice, shaderPath)) {
       std::cerr << "[App] Failed to initialize SkyboxPass" << std::endl;
       // Continue without skybox - not fatal
     }
@@ -181,8 +181,9 @@ private:
     // Load Model
     playerEntity = activeScene->CreateEntity("Helmet");
     try {
-      auto model = std::make_shared<Model>(
-          rhiDevice.get(), "models/DamagedHelmet/DamagedHelmet.glb");
+      auto model =
+          std::make_shared<Model>(rhiDevice, renderContext->GetTextureManager(),
+                                  "models/DamagedHelmet/DamagedHelmet.glb");
       // "models/car/Intergalactic_Spaceship-(Wavefront).obj");
       if (model->GetMeshCount() > 0)
         materials.push_back(model->GetMesh(0).GetMaterial());
@@ -199,8 +200,8 @@ private:
 
     // Floor
     auto floor = activeScene->CreateEntity("Floor");
-    auto floorMesh = std::make_shared<Mesh>(
-        ModelFactory::CreatePlane(rhiDevice.get(), 1.0f));
+    auto floorMesh =
+        std::make_shared<Mesh>(ModelFactory::CreatePlane(rhiDevice, 1.0f));
     auto floorRend = floor->AddComponent<SimpleMeshRenderer>(floorMesh);
     floorRend->SetMaterial(copper);
     floor->transform.Scale = glm::vec3(10.0f);

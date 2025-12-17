@@ -36,10 +36,12 @@ public:
     }
   }
 
-  bool LoadTexture(const std::string &path, TextureType type,
+  bool LoadTexture(TextureManager *manager, const std::string &path,
+                   TextureType type,
                    const TextureParams &params = TextureParams()) {
-    auto &manager = TextureManager::GetInstance();
-    auto texture = manager.LoadTexture(path, type, params);
+    if (!manager)
+      return false;
+    auto texture = manager->LoadTexture(path, type, params);
     if (texture) {
       AddTexture(texture);
       return true;

@@ -7,10 +7,7 @@
 #include <memory>
 #include <string>
 
-#ifndef STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-#endif
 
 enum class TextureType {
   DIFFUSE,
@@ -307,15 +304,9 @@ class TextureManager {
 private:
   std::map<std::string, std::shared_ptr<Texture>> cache;
   RHI::IDevice *device = nullptr;
-  static TextureManager *instance;
-  TextureManager() = default;
 
 public:
-  static TextureManager &GetInstance() {
-    if (!instance)
-      instance = new TextureManager();
-    return *instance;
-  }
+  TextureManager() = default;
 
   void SetDevice(RHI::IDevice *dev) { device = dev; }
 
@@ -337,8 +328,6 @@ public:
   void ClearCache() { cache.clear(); }
   size_t GetCacheSize() const { return cache.size(); }
 };
-
-TextureManager *TextureManager::instance = nullptr;
 
 inline std::string TextureTypeToString(TextureType type) {
   switch (type) {

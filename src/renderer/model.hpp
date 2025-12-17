@@ -19,6 +19,7 @@
 class Model {
 private:
   RHI::IDevice *device = nullptr;
+  TextureManager *textureManager = nullptr;
   std::vector<Mesh> meshes;
   std::string directory;
 
@@ -200,8 +201,7 @@ private:
         std::string fullPath = directory + '/' + filename;
         TextureParams params;
         params.flipVertically = true;
-        auto tex = TextureManager::GetInstance().LoadTexture(fullPath, texType,
-                                                             params);
+        auto tex = textureManager->LoadTexture(fullPath, texType, params);
         if (tex) {
           targetMat->AddTexture(tex);
         }
@@ -210,7 +210,8 @@ private:
   }
 
 public:
-  Model(RHI::IDevice *dev, const std::string &path) : device(dev) {
+  Model(RHI::IDevice *dev, TextureManager *tm, const std::string &path)
+      : device(dev), textureManager(tm) {
     loadModel(path);
   }
 

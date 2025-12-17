@@ -10,6 +10,7 @@
 #include "../rhi/rhi_device.h"
 #include "model.hpp"
 #include "render_command.hpp"
+#include "render_context.hpp"
 #include "shader.hpp"
 
 struct SceneData {
@@ -95,8 +96,8 @@ public:
     }
   }
 
-  void Init(RHI::IDevice *rhiDevice, Shader *defaultShader) {
-    device = rhiDevice;
+  void Init(RenderContext *context, Shader *defaultShader) {
+    device = context->GetDevice();
     activeShader = defaultShader;
     if (device) {
       device->SetClearColor({0.0f, 0.0f, 0.0f, 1.0f});
