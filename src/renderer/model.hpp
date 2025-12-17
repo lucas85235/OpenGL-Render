@@ -40,9 +40,6 @@ private:
 
     directory = path.substr(0, path.find_last_of('/'));
     processNode(scene->mRootNode, scene);
-
-    std::cout << "[Model] Loaded: " << path << " (" << meshes.size()
-              << " meshes)" << std::endl;
   }
 
   void processNode(aiNode *node, const aiScene *scene) {
@@ -150,15 +147,10 @@ private:
     if (targetMat->HasTextureType(texType))
       return;
 
-    std::cout << "[Model] Querying aiTextureType=" << aiType
-              << " count=" << mat->GetTextureCount(aiType) << " for "
-              << TextureTypeToString(texType) << std::endl;
-
     for (unsigned int i = 0; i < mat->GetTextureCount(aiType); i++) {
       aiString str;
       mat->GetTexture(aiType, i, &str);
       std::string filename = std::string(str.C_Str());
-      std::cout << "[Model]   Texture path: " << filename << std::endl;
 
       if (filename.length() > 0 && filename[0] == '*') {
         int textureIndex = std::stoi(filename.substr(1));
@@ -189,9 +181,6 @@ private:
                   reinterpret_cast<unsigned char *>(aiTex->pcData),
                   compressedSize, texType, params)) {
             targetMat->AddTexture(embeddedTex);
-            std::cout << "[Model] Loaded embedded texture " << textureIndex
-                      << " as " << TextureTypeToString(texType) << std::endl;
-            return;
           } else {
             std::cerr << "[Model] Failed to load embedded texture "
                       << textureIndex << std::endl;

@@ -9,7 +9,6 @@ RenderContext::RenderContext(RHI::API api, void *nativeWindow)
 RenderContext::~RenderContext() { Shutdown(); }
 
 bool RenderContext::Initialize(IFileSystem *fs) {
-  std::cout << "[RenderContext] Initializing..." << std::endl;
   fileSystem = fs;
 
   device = RHI::CreateDevice(api, reinterpret_cast<GLFWwindow *>(nativeWindow));

@@ -86,10 +86,6 @@ public:
       return false;
     }
 
-    std::cout << "[CpuCubemap] Converting " << hdrWidth << "x" << hdrHeight
-              << " HDR to " << faceSize << "x" << faceSize << " cubemap..."
-              << std::endl;
-
     // Allocate buffers: float32 for processing, uint16 (half) for upload
     std::vector<float> faceDataF32(faceSize * faceSize * 4);
     std::vector<uint16_t> faceDataF16(faceSize * faceSize * 4);
@@ -147,13 +143,10 @@ public:
       // Upload face to cubemap (now as half-float data)
       RHI::CubemapFace rhiFace = static_cast<RHI::CubemapFace>(face);
       device->UpdateTextureCubeFace(cubemap, rhiFace, faceDataF16.data(), 0);
-
-      std::cout << "[CpuCubemap] Face " << face << " converted" << std::endl;
     }
 
     device->GenerateMipmaps(cubemap);
 
-    std::cout << "[CpuCubemap] Conversion complete" << std::endl;
     return true;
   }
 };

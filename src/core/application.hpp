@@ -101,9 +101,6 @@ private:
     }
 
     auto rhiDevice = renderContext->GetDevice();
-    auto info = rhiDevice->GetDeviceInfo();
-    std::cout << "[RHI] Renderer: " << info.rendererName << std::endl;
-    std::cout << "[RHI] Version: " << info.apiVersion << std::endl;
 
     window->SetResizeCallback([this](int w, int h) {
       if (this->fb)
@@ -118,11 +115,9 @@ private:
       pbrShaderLoaded =
           shaderMgr->LoadShader("pbr", "shaders/unified/pbr.vert.spv",
                                 "shaders/unified/pbr.frag.spv");
-      std::cout << "[App] Using Vulkan SPIR-V shaders" << std::endl;
     } else {
       pbrShaderLoaded =
           shaderMgr->LoadShader("pbr", "shaders/pbr.vert", "shaders/pbr.frag");
-      std::cout << "[App] Using OpenGL GLSL shaders" << std::endl;
     }
 
     if (!pbrShaderLoaded) {
@@ -215,7 +210,6 @@ private:
     blueLight->AddComponent<FloaterScript>(1.0f, 2.0f);
 
     activeScene->OnStart();
-    std::cout << "[App] Scene loaded!" << std::endl;
   }
 
   void ProcessInput(float dt) {
@@ -235,14 +229,8 @@ private:
     bool mPressed = window->IsKeyPressed(GLFW_KEY_M);
     if (mPressed && !mKeyPressed) {
       currentMatIndex = (currentMatIndex + 1) % materials.size();
-
-      if (playerEntity) {
-        if (auto rend = playerEntity->GetComponent<MeshRenderer>()) {
-          rend->SetMaterial(materials[currentMatIndex]);
-          std::cout << "[App] Material: "
-                    << materials[currentMatIndex]->GetName() << std::endl;
-        }
-      }
+      if (auto rend = playerEntity->GetComponent<MeshRenderer>())
+        rend->SetMaterial(materials[currentMatIndex]);
     }
     mKeyPressed = mPressed;
   }
@@ -255,7 +243,6 @@ private:
     fpsTimer += dt;
     if (fpsTimer >= 1.0f) {
       currentFPS = static_cast<float>(frameCount) / fpsTimer;
-      std::cout << "[App] FPS: " << static_cast<int>(currentFPS) << std::endl;
       frameCount = 0;
       fpsTimer = 0.0f;
     }
@@ -270,7 +257,6 @@ private:
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), window->GetAspect(),
                                       0.1f, 100.0f);
 
-    // Render Graph Execution
     RenderPassData passData;
     passData.view = view;
     passData.projection = proj;

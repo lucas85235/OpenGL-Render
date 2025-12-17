@@ -56,8 +56,6 @@ public:
     // Bind textures by TYPE to correct slot (not by array index)
     for (const auto &tex : textures) {
       uint32_t slot = GetSlotForTextureType(tex->GetType());
-      std::cout << "[Material] Binding " << TextureTypeToString(tex->GetType())
-                << " to slot " << slot << std::endl;
       tex->Bind(slot);
     }
 

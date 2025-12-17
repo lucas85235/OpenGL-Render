@@ -92,8 +92,6 @@ public:
       return;
     }
 
-    std::cout << "[IBL] Loading HDR: " << path << std::endl;
-
     if (!fs) {
       std::cerr << "[IBL] FileSystem not set!" << std::endl;
       return;
@@ -116,9 +114,6 @@ public:
       std::cerr << "[IBL] Failed to load HDR: " << path << std::endl;
       return;
     }
-
-    std::cout << "[IBL] HDR loaded: " << hdrWidth << "x" << hdrHeight << " ("
-              << hdrChannels << " channels)" << std::endl;
 
     // Create environment cubemap
     RHI::TextureDescriptor cubemapDesc;
@@ -154,8 +149,6 @@ public:
     GenerateIrradianceMap();
     GeneratePrefilterMap();
     GenerateBRDFLUT();
-
-    std::cout << "[IBL] Environment maps created successfully." << std::endl;
   }
 
   void GenerateIrradianceMap() {

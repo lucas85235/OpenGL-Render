@@ -61,7 +61,6 @@ public:
       return false;
 
     device = dev;
-    std::cout << "[SkyboxPass] Initializing..." << std::endl;
 
     // Create vertex buffer with cube geometry
     RHI::BufferDescriptor vbDesc;
@@ -136,7 +135,6 @@ public:
     }
 
     initialized = true;
-    std::cout << "[SkyboxPass] Initialized successfully" << std::endl;
     return true;
   }
 
