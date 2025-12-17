@@ -100,6 +100,17 @@ public:
                              uint32_t mipLevel = 0) = 0;
 
   /**
+   * @brief Updates a specific face of a cubemap texture
+   * @param texture Handle to the cubemap texture
+   * @param face Which face to update
+   * @param data Pixel data for this face
+   * @param mipLevel Mipmap level (0 = base)
+   */
+  virtual void UpdateTextureCubeFace(TextureHandle texture, CubemapFace face,
+                                     const void *data,
+                                     uint32_t mipLevel = 0) = 0;
+
+  /**
    * @brief Gera mipmaps para uma textura
    */
   virtual void GenerateMipmaps(TextureHandle texture) = 0;
@@ -315,6 +326,19 @@ public:
    * @brief Draw com índices
    */
   virtual void DrawIndexed(const DrawIndexedCommand &cmd) = 0;
+
+  /**
+   * @brief Draw skybox with isolated pipeline state
+   * @param cubemap Handle to the cubemap texture
+   * @param sampler Handle to the sampler
+   * @param viewMatrix View matrix (translation will be removed internally)
+   * @param projMatrix Projection matrix
+   *
+   * This method uses a dedicated descriptor set and pipeline to avoid
+   * corrupting the main scene's render state.
+   */
+  virtual void DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
+                          const float *viewMatrix, const float *projMatrix) = 0;
 
   // ========================================================================
   // UTILITY

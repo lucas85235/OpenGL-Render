@@ -11,8 +11,18 @@
 
 #include "../core/filesystem.hpp"
 #include "../rhi/rhi_device.h"
+#include "cpu_cubemap_converter.hpp"
 #include "shader.hpp"
 #include "texture.hpp"
+
+// stb_image is already included via texture.hpp
+// We just need to declare the float loader if not visible
+extern "C" {
+extern float *stbi_loadf(char const *filename, int *x, int *y,
+                         int *channels_in_file, int desired_channels);
+extern void stbi_image_free(void *retval_from_stbi_load);
+extern void stbi_set_flip_vertically_on_load(int flag_true_if_should_flip);
+}
 
 namespace PBRUtils {
 
@@ -50,6 +60,7 @@ public:
   RHI::TextureHandle irradianceMap;
   RHI::TextureHandle prefilterMap;
   RHI::TextureHandle brdfLUTTexture;
+  RHI::SamplerHandle cubemapSampler;
 
   EnvironmentMap() = default;
 
@@ -65,6 +76,8 @@ public:
         device->DestroyTexture(prefilterMap);
       if (RHI::IsValid(brdfLUTTexture))
         device->DestroyTexture(brdfLUTTexture);
+      if (RHI::IsValid(cubemapSampler))
+        device->DestroySampler(cubemapSampler);
     }
   }
 
@@ -76,12 +89,21 @@ public:
       return;
     }
 
-    // Load HDR texture
-    Texture hdrTexture(device);
-    if (!hdrTexture.LoadHDR(path)) {
+    std::cout << "[IBL] Loading HDR: " << path << std::endl;
+
+    // Load HDR data directly using stb_image
+    int hdrWidth, hdrHeight, hdrChannels;
+    stbi_set_flip_vertically_on_load(true);
+    float *hdrData =
+        stbi_loadf(path.c_str(), &hdrWidth, &hdrHeight, &hdrChannels, 0);
+
+    if (!hdrData) {
       std::cerr << "[IBL] Failed to load HDR: " << path << std::endl;
       return;
     }
+
+    std::cout << "[IBL] HDR loaded: " << hdrWidth << "x" << hdrHeight << " ("
+              << hdrChannels << " channels)" << std::endl;
 
     // Create environment cubemap
     RHI::TextureDescriptor cubemapDesc;
@@ -95,12 +117,24 @@ public:
     envCubemap = device->CreateTexture(cubemapDesc);
     if (!RHI::IsValid(envCubemap)) {
       std::cerr << "[IBL] Failed to create environment cubemap" << std::endl;
+      stbi_image_free(hdrData);
       return;
     }
 
-    // Note: Actual cubemap conversion from equirectangular HDR requires
-    // render-to-texture passes which is complex. For now we create the
-    // textures. Full implementation would use compute shaders or render passes.
+    // Convert equirectangular HDR to cubemap using CPU
+    CpuCubemapConverter::Convert(hdrData, hdrWidth, hdrHeight, hdrChannels,
+                                 CUBEMAP_SIZE, device, envCubemap);
+
+    stbi_image_free(hdrData);
+
+    // Create sampler for cubemap
+    RHI::SamplerDescriptor samplerDesc;
+    samplerDesc.minFilter = RHI::TextureFilterMode::Linear;
+    samplerDesc.magFilter = RHI::TextureFilterMode::Linear;
+    samplerDesc.wrapS = RHI::TextureWrapMode::ClampToEdge;
+    samplerDesc.wrapT = RHI::TextureWrapMode::ClampToEdge;
+    samplerDesc.wrapR = RHI::TextureWrapMode::ClampToEdge;
+    cubemapSampler = device->CreateSampler(samplerDesc);
 
     GenerateIrradianceMap();
     GeneratePrefilterMap();
@@ -165,6 +199,7 @@ public:
   RHI::TextureHandle GetIrradianceMap() const { return irradianceMap; }
   RHI::TextureHandle GetPrefilterMap() const { return prefilterMap; }
   RHI::TextureHandle GetBrdfLUT() const { return brdfLUTTexture; }
+  RHI::SamplerHandle GetSampler() const { return cubemapSampler; }
 
   bool IsValid() const { return RHI::IsValid(envCubemap); }
 

@@ -1346,97 +1346,213 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDescriptor &desc) {
   vkTexture.height = desc.height;
   vkTexture.depth = desc.depth;
   vkTexture.format = toVkFormat(desc.format);
+  vkTexture.isCubemap = (desc.type == TextureType::TextureCube);
+  vkTexture.arrayLayers = vkTexture.isCubemap ? 6 : 1;
 
   std::cout << "[Vulkan] CreateTexture: " << desc.width << "x" << desc.height
-            << " format=" << static_cast<int>(desc.format) << std::endl;
+            << " format=" << static_cast<int>(desc.format)
+            << " type=" << (vkTexture.isCubemap ? "Cubemap" : "2D")
+            << std::endl;
 
-  VkDeviceSize imageSize = static_cast<VkDeviceSize>(desc.width) *
-                           static_cast<VkDeviceSize>(desc.height) * 4;
+  // Create the image
+  VkImageCreateInfo imageInfo{};
+  imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  imageInfo.imageType = VK_IMAGE_TYPE_2D;
+  imageInfo.extent.width = desc.width;
+  imageInfo.extent.height = desc.height;
+  imageInfo.extent.depth = 1;
+  imageInfo.mipLevels = 1;
+  imageInfo.arrayLayers = vkTexture.arrayLayers;
+  imageInfo.format = vkTexture.format;
+  imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+  imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  imageInfo.usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+  imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-  VkBuffer stagingBuffer;
-  VkDeviceMemory stagingBufferMemory;
-
-  VkBufferCreateInfo bufferInfo{};
-  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  bufferInfo.size = imageSize;
-  bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-  if (vkCreateBuffer(device, &bufferInfo, nullptr, &stagingBuffer) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("[Vulkan] Failed to create staging buffer");
+  if (vkTexture.isCubemap) {
+    imageInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
   }
 
-  VkMemoryRequirements memRequirements;
-  vkGetBufferMemoryRequirements(device, stagingBuffer, &memRequirements);
+  if (vkCreateImage(device, &imageInfo, nullptr, &vkTexture.image) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create image" << std::endl;
+    return TextureHandle{0};
+  }
 
-  std::cout << "[Vulkan] Staging buffer: requested=" << imageSize
-            << " bytes, driver requires=" << memRequirements.size
-            << " bytes, alignment=" << memRequirements.alignment << std::endl;
+  // Allocate memory for the image
+  VkMemoryRequirements memRequirements;
+  vkGetImageMemoryRequirements(device, vkTexture.image, &memRequirements);
+
+  VkMemoryDedicatedAllocateInfo dedicatedInfo{};
+  dedicatedInfo.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+  dedicatedInfo.image = vkTexture.image;
+  dedicatedInfo.buffer = VK_NULL_HANDLE;
 
   VkMemoryAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.pNext = &dedicatedInfo;
   allocInfo.allocationSize = memRequirements.size;
   allocInfo.memoryTypeIndex = findMemoryType(
-      memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-  if (vkAllocateMemory(device, &allocInfo, nullptr, &stagingBufferMemory) !=
+  if (vkAllocateMemory(device, &allocInfo, nullptr, &vkTexture.memory) !=
       VK_SUCCESS) {
-    throw std::runtime_error(
-        "[Vulkan] Failed to allocate staging buffer memory");
+    std::cerr << "[Vulkan] Failed to allocate image memory" << std::endl;
+    vkDestroyImage(device, vkTexture.image, nullptr);
+    return TextureHandle{0};
   }
 
-  vkBindBufferMemory(device, stagingBuffer, stagingBufferMemory, 0);
+  vkBindImageMemory(device, vkTexture.image, vkTexture.memory, 0);
 
-  if (desc.data) {
-    void *data;
-    VkResult mapResult =
-        vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
-    if (mapResult != VK_SUCCESS) {
-      std::cerr << "[Vulkan] Failed to map staging buffer memory" << std::endl;
-      vkDestroyBuffer(device, stagingBuffer, nullptr);
-      vkFreeMemory(device, stagingBufferMemory, nullptr);
-      return TextureHandle{0};
-    }
-    memcpy(data, desc.data, static_cast<size_t>(imageSize));
+  // Transition all layers to SHADER_READ_ONLY (faces will be updated
+  // individually)
+  VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
-    // Log first few pixels for debugging
-    const unsigned char *srcData =
-        static_cast<const unsigned char *>(desc.data);
-    std::cout << "[Vulkan] Texture upload: first pixel RGBA = ("
-              << (int)srcData[0] << ", " << (int)srcData[1] << ", "
-              << (int)srcData[2] << ", " << (int)srcData[3] << ")" << std::endl;
+  VkImageMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = vkTexture.image;
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.baseMipLevel = 0;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.baseArrayLayer = 0;
+  barrier.subresourceRange.layerCount = vkTexture.arrayLayers;
+  barrier.srcAccessMask = 0;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
+  vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+
+  endSingleTimeCommands(commandBuffer);
+
+  // If data is provided for 2D texture, upload it
+  if (desc.data && !vkTexture.isCubemap) {
+    VkDeviceSize imageSize = static_cast<VkDeviceSize>(desc.width) *
+                             static_cast<VkDeviceSize>(desc.height) * 4;
+
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = imageSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    vkCreateBuffer(device, &bufferInfo, nullptr, &stagingBuffer);
+
+    VkMemoryRequirements bufMemReq;
+    vkGetBufferMemoryRequirements(device, stagingBuffer, &bufMemReq);
+
+    VkMemoryAllocateInfo bufAllocInfo{};
+    bufAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    bufAllocInfo.allocationSize = bufMemReq.size;
+    bufAllocInfo.memoryTypeIndex = findMemoryType(
+        bufMemReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    vkAllocateMemory(device, &bufAllocInfo, nullptr, &stagingBufferMemory);
+    vkBindBufferMemory(device, stagingBuffer, stagingBufferMemory, 0);
+
+    void *mappedData;
+    vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &mappedData);
+    memcpy(mappedData, desc.data, static_cast<size_t>(imageSize));
     vkUnmapMemory(device, stagingBufferMemory);
+
+    // Transition to TRANSFER_DST, copy, then back to SHADER_READ
+    VkCommandBuffer cmd = beginSingleTimeCommands();
+
+    VkImageMemoryBarrier toDst{};
+    toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toDst.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toDst.image = vkTexture.image;
+    toDst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    toDst.subresourceRange.baseMipLevel = 0;
+    toDst.subresourceRange.levelCount = 1;
+    toDst.subresourceRange.baseArrayLayer = 0;
+    toDst.subresourceRange.layerCount = 1;
+    toDst.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &toDst);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {desc.width, desc.height, 1};
+
+    vkCmdCopyBufferToImage(cmd, stagingBuffer, vkTexture.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    VkImageMemoryBarrier toRead{};
+    toRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toRead.image = vkTexture.image;
+    toRead.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    toRead.subresourceRange.baseMipLevel = 0;
+    toRead.subresourceRange.levelCount = 1;
+    toRead.subresourceRange.baseArrayLayer = 0;
+    toRead.subresourceRange.layerCount = 1;
+    toRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &toRead);
+
+    endSingleTimeCommands(cmd);
+
+    vkDestroyBuffer(device, stagingBuffer, nullptr);
+    vkFreeMemory(device, stagingBufferMemory, nullptr);
   }
 
-  createImage(
-      desc.width, desc.height, vkTexture.format, VK_IMAGE_TILING_OPTIMAL,
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vkTexture.image, vkTexture.memory);
+  // Create the image view
+  VkImageViewCreateInfo viewInfo{};
+  viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  viewInfo.image = vkTexture.image;
+  viewInfo.viewType =
+      vkTexture.isCubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+  viewInfo.format = vkTexture.format;
+  viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+  viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+  viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+  viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+  viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  viewInfo.subresourceRange.baseMipLevel = 0;
+  viewInfo.subresourceRange.levelCount = 1;
+  viewInfo.subresourceRange.baseArrayLayer = 0;
+  viewInfo.subresourceRange.layerCount = vkTexture.arrayLayers;
 
-  transitionImageLayout(vkTexture.image, vkTexture.format,
-                        VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(stagingBuffer, vkTexture.image,
-                    static_cast<uint32_t>(desc.width),
-                    static_cast<uint32_t>(desc.height));
-  transitionImageLayout(vkTexture.image, vkTexture.format,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-  // Explicit sync before destroying staging buffer
-  vkDeviceWaitIdle(device);
-
-  vkDestroyBuffer(device, stagingBuffer, nullptr);
-  vkFreeMemory(device, stagingBufferMemory, nullptr);
-
-  vkTexture.imageView = createImageView(vkTexture.image, vkTexture.format);
+  if (vkCreateImageView(device, &viewInfo, nullptr, &vkTexture.imageView) !=
+      VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create texture image view" << std::endl;
+    vkDestroyImage(device, vkTexture.image, nullptr);
+    vkFreeMemory(device, vkTexture.memory, nullptr);
+    return TextureHandle{0};
+  }
 
   TextureHandle handle{nextId++};
   textures[handle.id] = vkTexture;
-  std::cout << "[Vulkan] Texture created id=" << handle.id << std::endl;
+  std::cout << "[Vulkan] Texture created id=" << handle.id
+            << (vkTexture.isCubemap ? " (cubemap)" : "") << std::endl;
   return handle;
 }
 
@@ -1485,6 +1601,98 @@ void VulkanDevice::UpdateTexture(TextureHandle texture, const void *data,
   transitionImageLayout(it->second.image, it->second.format,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  vkDestroyBuffer(device, stagingBuffer, nullptr);
+  vkFreeMemory(device, stagingBufferMemory, nullptr);
+}
+
+void VulkanDevice::UpdateTextureCubeFace(TextureHandle texture,
+                                         CubemapFace face, const void *data,
+                                         uint32_t mipLevel) {
+  auto it = textures.find(texture.id);
+  if (it == textures.end())
+    return;
+
+  uint32_t faceLayer = static_cast<uint32_t>(face);
+  std::cout << "[Vulkan] UpdateTextureCubeFace: face=" << faceLayer
+            << " mip=" << mipLevel << std::endl;
+
+  // Use half-float (16-bit) data - each pixel is 4 floats = 16 bytes
+  VkDeviceSize imageSize = it->second.width * it->second.height * 16;
+
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
+
+  VkBufferCreateInfo bufferInfo{};
+  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferInfo.size = imageSize;
+  bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  vkCreateBuffer(device, &bufferInfo, nullptr, &stagingBuffer);
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device, stagingBuffer, &memRequirements);
+  VkMemoryAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex = findMemoryType(
+      memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  vkAllocateMemory(device, &allocInfo, nullptr, &stagingBufferMemory);
+  vkBindBufferMemory(device, stagingBuffer, stagingBufferMemory, 0);
+
+  void *mappedData;
+  vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &mappedData);
+  memcpy(mappedData, data, static_cast<size_t>(imageSize));
+  vkUnmapMemory(device, stagingBufferMemory);
+
+  // For 2D textures used as cubemap placeholders, just do regular copy
+  // Real cubemap would copy to specific array layer
+  VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+  VkImageMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = it->second.image;
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.baseMipLevel = mipLevel;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.baseArrayLayer = faceLayer;
+  barrier.subresourceRange.layerCount = 1;
+  barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+  vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+
+  VkBufferImageCopy region{};
+  region.bufferOffset = 0;
+  region.bufferRowLength = 0;
+  region.bufferImageHeight = 0;
+  region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  region.imageSubresource.mipLevel = mipLevel;
+  region.imageSubresource.baseArrayLayer = faceLayer;
+  region.imageSubresource.layerCount = 1;
+  region.imageOffset = {0, 0, 0};
+  region.imageExtent = {it->second.width, it->second.height, 1};
+
+  vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, it->second.image,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+
+  endSingleTimeCommands(commandBuffer);
 
   vkDestroyBuffer(device, stagingBuffer, nullptr);
   vkFreeMemory(device, stagingBufferMemory, nullptr);
@@ -2975,4 +3183,430 @@ VkPrimitiveTopology VulkanDevice::toVkTopology(PrimitiveTopology topology) {
     return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   }
 }
+
+void VulkanDevice::DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
+                              const float *viewMatrix,
+                              const float *projMatrix) {
+  auto texIt = textures.find(cubemap.id);
+  auto sampIt = samplers.find(sampler.id);
+  if (texIt == textures.end() || sampIt == samplers.end()) {
+    return;
+  }
+
+  if (!skyboxInitialized) {
+    initializeSkyboxResources();
+    if (!skyboxInitialized) {
+      std::cerr << "[Vulkan] Failed to initialize skybox resources"
+                << std::endl;
+      return;
+    }
+  }
+
+  // Update skybox UBO with view (no translation) and projection
+  struct SkyboxUBO {
+    float projection[16];
+    float view[16];
+  } skyboxUbo;
+
+  memcpy(skyboxUbo.projection, projMatrix, 16 * sizeof(float));
+
+  // Remove translation from view matrix (use only rotation)
+  float viewRotOnly[16];
+  memcpy(viewRotOnly, viewMatrix, 16 * sizeof(float));
+  viewRotOnly[12] = 0.0f;
+  viewRotOnly[13] = 0.0f;
+  viewRotOnly[14] = 0.0f;
+  memcpy(skyboxUbo.view, viewRotOnly, 16 * sizeof(float));
+
+  if (currentFrame < skyboxUBOMapped.size() && skyboxUBOMapped[currentFrame]) {
+    memcpy(skyboxUBOMapped[currentFrame], &skyboxUbo, sizeof(SkyboxUBO));
+  }
+
+  // Update descriptor set with cubemap texture
+  VkDescriptorImageInfo imageInfo{};
+  imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfo.imageView = texIt->second.imageView;
+  imageInfo.sampler = sampIt->second.sampler;
+
+  VkWriteDescriptorSet descriptorWrite{};
+  descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  descriptorWrite.dstSet = skyboxDescriptorSets[currentFrame];
+  descriptorWrite.dstBinding = 1;
+  descriptorWrite.dstArrayElement = 0;
+  descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  descriptorWrite.descriptorCount = 1;
+  descriptorWrite.pImageInfo = &imageInfo;
+
+  vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+
+  // Bind skybox pipeline
+  vkCmdBindPipeline(commandBuffers[currentFrame],
+                    VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
+
+  // Bind skybox descriptor set
+  vkCmdBindDescriptorSets(commandBuffers[currentFrame],
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipelineLayout,
+                          0, 1, &skyboxDescriptorSets[currentFrame], 0,
+                          nullptr);
+
+  // Bind skybox vertex buffer
+  VkBuffer vertexBuffers[] = {skyboxCubeVB};
+  VkDeviceSize offsets[] = {0};
+  vkCmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, vertexBuffers,
+                         offsets);
+
+  // Draw cube (36 vertices)
+  vkCmdDraw(commandBuffers[currentFrame], 36, 1, 0, 0);
+}
+
+void VulkanDevice::initializeSkyboxResources() {
+  std::cout << "[Vulkan] Initializing dedicated skybox resources..."
+            << std::endl;
+
+  // Skybox cube vertices (inverted for inside view)
+  static const float cubeVertices[] = {
+      -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, 1.0f,
+      -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f,
+      1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, 1.0f,  -1.0f,
+      -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,
+      -1.0f, 1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,
+      -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  -1.0f, 1.0f,  1.0f,
+      1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  -1.0f, 1.0f,  -1.0f,
+      -1.0f, 1.0f,  -1.0f, 1.0f,  -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f,  1.0f,
+      1.0f,  1.0f,  1.0f,  1.0f,  -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f,  -1.0f,
+      -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,
+      -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f,
+  };
+
+  // Create vertex buffer
+  VkDeviceSize bufferSize = sizeof(cubeVertices);
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingMemory;
+
+  VkBufferCreateInfo stagingInfo{};
+  stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  stagingInfo.size = bufferSize;
+  stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  vkCreateBuffer(device, &stagingInfo, nullptr, &stagingBuffer);
+
+  VkMemoryRequirements memReq;
+  vkGetBufferMemoryRequirements(device, stagingBuffer, &memReq);
+  VkMemoryAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memReq.size;
+  allocInfo.memoryTypeIndex = findMemoryType(
+      memReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  vkAllocateMemory(device, &allocInfo, nullptr, &stagingMemory);
+  vkBindBufferMemory(device, stagingBuffer, stagingMemory, 0);
+
+  void *data;
+  vkMapMemory(device, stagingMemory, 0, bufferSize, 0, &data);
+  memcpy(data, cubeVertices, bufferSize);
+  vkUnmapMemory(device, stagingMemory);
+
+  VkBufferCreateInfo vbInfo{};
+  vbInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  vbInfo.size = bufferSize;
+  vbInfo.usage =
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  vbInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  vkCreateBuffer(device, &vbInfo, nullptr, &skyboxCubeVB);
+
+  vkGetBufferMemoryRequirements(device, skyboxCubeVB, &memReq);
+  allocInfo.allocationSize = memReq.size;
+  allocInfo.memoryTypeIndex = findMemoryType(
+      memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  vkAllocateMemory(device, &allocInfo, nullptr, &skyboxCubeVBMemory);
+  vkBindBufferMemory(device, skyboxCubeVB, skyboxCubeVBMemory, 0);
+
+  VkCommandBuffer cmd = beginSingleTimeCommands();
+  VkBufferCopy copyRegion{};
+  copyRegion.size = bufferSize;
+  vkCmdCopyBuffer(cmd, stagingBuffer, skyboxCubeVB, 1, &copyRegion);
+  endSingleTimeCommands(cmd);
+
+  vkDestroyBuffer(device, stagingBuffer, nullptr);
+  vkFreeMemory(device, stagingMemory, nullptr);
+
+  // Create UBOs (one per frame)
+  VkDeviceSize uboSize = 128; // 2 mat4
+  skyboxUBOs.resize(MAX_FRAMES_IN_FLIGHT);
+  skyboxUBOMemories.resize(MAX_FRAMES_IN_FLIGHT);
+  skyboxUBOMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    VkBufferCreateInfo uboInfo{};
+    uboInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    uboInfo.size = uboSize;
+    uboInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    uboInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    vkCreateBuffer(device, &uboInfo, nullptr, &skyboxUBOs[i]);
+
+    vkGetBufferMemoryRequirements(device, skyboxUBOs[i], &memReq);
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = findMemoryType(
+        memReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    vkAllocateMemory(device, &allocInfo, nullptr, &skyboxUBOMemories[i]);
+    vkBindBufferMemory(device, skyboxUBOs[i], skyboxUBOMemories[i], 0);
+    vkMapMemory(device, skyboxUBOMemories[i], 0, uboSize, 0,
+                &skyboxUBOMapped[i]);
+  }
+
+  // Create descriptor set layout (binding 0: UBO, binding 1: samplerCube)
+  VkDescriptorSetLayoutBinding uboBinding{};
+  uboBinding.binding = 0;
+  uboBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  uboBinding.descriptorCount = 1;
+  uboBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+  VkDescriptorSetLayoutBinding samplerBinding{};
+  samplerBinding.binding = 1;
+  samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  samplerBinding.descriptorCount = 1;
+  samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+  std::array<VkDescriptorSetLayoutBinding, 2> bindings = {uboBinding,
+                                                          samplerBinding};
+  VkDescriptorSetLayoutCreateInfo layoutInfo{};
+  layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+  layoutInfo.pBindings = bindings.data();
+  vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
+                              &skyboxDescriptorSetLayout);
+
+  // Create descriptor pool
+  std::array<VkDescriptorPoolSize, 2> poolSizes{};
+  poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+  poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+  VkDescriptorPoolCreateInfo poolInfo{};
+  poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+  poolInfo.pPoolSizes = poolSizes.data();
+  poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+  vkCreateDescriptorPool(device, &poolInfo, nullptr, &skyboxDescriptorPool);
+
+  // Allocate descriptor sets
+  std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
+                                             skyboxDescriptorSetLayout);
+  VkDescriptorSetAllocateInfo dsAllocInfo{};
+  dsAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  dsAllocInfo.descriptorPool = skyboxDescriptorPool;
+  dsAllocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+  dsAllocInfo.pSetLayouts = layouts.data();
+  skyboxDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+  vkAllocateDescriptorSets(device, &dsAllocInfo, skyboxDescriptorSets.data());
+
+  // Update descriptor sets with UBO
+  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = skyboxUBOs[i];
+    bufferInfo.offset = 0;
+    bufferInfo.range = uboSize;
+
+    VkWriteDescriptorSet uboWrite{};
+    uboWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    uboWrite.dstSet = skyboxDescriptorSets[i];
+    uboWrite.dstBinding = 0;
+    uboWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboWrite.descriptorCount = 1;
+    uboWrite.pBufferInfo = &bufferInfo;
+    vkUpdateDescriptorSets(device, 1, &uboWrite, 0, nullptr);
+  }
+
+  // Load skybox shaders
+  auto loadSpirv = [](const std::string &path) -> std::vector<uint32_t> {
+    std::ifstream file(path, std::ios::ate | std::ios::binary);
+    if (!file.is_open())
+      return {};
+    size_t fileSize = (size_t)file.tellg();
+    std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+    file.seekg(0);
+    file.read(reinterpret_cast<char *>(buffer.data()), fileSize);
+    file.close();
+    return buffer;
+  };
+
+  auto vertCode = loadSpirv("shaders/unified/skybox.vert.spv");
+  auto fragCode = loadSpirv("shaders/unified/skybox.frag.spv");
+  if (vertCode.empty() || fragCode.empty()) {
+    std::cerr << "[Vulkan] Failed to load skybox shaders" << std::endl;
+    return;
+  }
+
+  VkShaderModuleCreateInfo vertInfo{};
+  vertInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  vertInfo.codeSize = vertCode.size() * sizeof(uint32_t);
+  vertInfo.pCode = vertCode.data();
+  vkCreateShaderModule(device, &vertInfo, nullptr, &skyboxVertModule);
+
+  VkShaderModuleCreateInfo fragInfo{};
+  fragInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  fragInfo.codeSize = fragCode.size() * sizeof(uint32_t);
+  fragInfo.pCode = fragCode.data();
+  vkCreateShaderModule(device, &fragInfo, nullptr, &skyboxFragModule);
+
+  // Create pipeline layout
+  VkPipelineLayoutCreateInfo pipeLayoutInfo{};
+  pipeLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  pipeLayoutInfo.setLayoutCount = 1;
+  pipeLayoutInfo.pSetLayouts = &skyboxDescriptorSetLayout;
+  vkCreatePipelineLayout(device, &pipeLayoutInfo, nullptr,
+                         &skyboxPipelineLayout);
+
+  // Create graphics pipeline
+  VkPipelineShaderStageCreateInfo vertStage{};
+  vertStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  vertStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+  vertStage.module = skyboxVertModule;
+  vertStage.pName = "main";
+
+  VkPipelineShaderStageCreateInfo fragStage{};
+  fragStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  fragStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  fragStage.module = skyboxFragModule;
+  fragStage.pName = "main";
+
+  VkPipelineShaderStageCreateInfo shaderStages[] = {vertStage, fragStage};
+
+  VkVertexInputBindingDescription bindingDesc{};
+  bindingDesc.binding = 0;
+  bindingDesc.stride = 3 * sizeof(float);
+  bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  VkVertexInputAttributeDescription attrDesc{};
+  attrDesc.binding = 0;
+  attrDesc.location = 0;
+  attrDesc.format = VK_FORMAT_R32G32B32_SFLOAT;
+  attrDesc.offset = 0;
+
+  VkPipelineVertexInputStateCreateInfo vertexInput{};
+  vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+  vertexInput.vertexBindingDescriptionCount = 1;
+  vertexInput.pVertexBindingDescriptions = &bindingDesc;
+  vertexInput.vertexAttributeDescriptionCount = 1;
+  vertexInput.pVertexAttributeDescriptions = &attrDesc;
+
+  VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+  inputAssembly.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+  VkPipelineViewportStateCreateInfo viewportState{};
+  viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+  viewportState.viewportCount = 1;
+  viewportState.scissorCount = 1;
+
+  VkPipelineRasterizationStateCreateInfo rasterizer{};
+  rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+  rasterizer.depthClampEnable = VK_FALSE;
+  rasterizer.rasterizerDiscardEnable = VK_FALSE;
+  rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+  rasterizer.lineWidth = 1.0f;
+  rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
+  rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+  rasterizer.depthBiasEnable = VK_FALSE;
+
+  VkPipelineMultisampleStateCreateInfo multisampling{};
+  multisampling.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+  multisampling.sampleShadingEnable = VK_FALSE;
+  multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+  VkPipelineDepthStencilStateCreateInfo depthStencil{};
+  depthStencil.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+  depthStencil.depthTestEnable = VK_TRUE;
+  depthStencil.depthWriteEnable = VK_FALSE;
+  depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+  depthStencil.depthBoundsTestEnable = VK_FALSE;
+  depthStencil.stencilTestEnable = VK_FALSE;
+
+  VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+  colorBlendAttachment.colorWriteMask =
+      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  colorBlendAttachment.blendEnable = VK_FALSE;
+
+  VkPipelineColorBlendStateCreateInfo colorBlending{};
+  colorBlending.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+  colorBlending.logicOpEnable = VK_FALSE;
+  colorBlending.attachmentCount = 1;
+  colorBlending.pAttachments = &colorBlendAttachment;
+
+  std::vector<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT,
+                                               VK_DYNAMIC_STATE_SCISSOR};
+  VkPipelineDynamicStateCreateInfo dynamicState{};
+  dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+  dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+  dynamicState.pDynamicStates = dynamicStates.data();
+
+  VkGraphicsPipelineCreateInfo pipelineInfo{};
+  pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+  pipelineInfo.stageCount = 2;
+  pipelineInfo.pStages = shaderStages;
+  pipelineInfo.pVertexInputState = &vertexInput;
+  pipelineInfo.pInputAssemblyState = &inputAssembly;
+  pipelineInfo.pViewportState = &viewportState;
+  pipelineInfo.pRasterizationState = &rasterizer;
+  pipelineInfo.pMultisampleState = &multisampling;
+  pipelineInfo.pDepthStencilState = &depthStencil;
+  pipelineInfo.pColorBlendState = &colorBlending;
+  pipelineInfo.pDynamicState = &dynamicState;
+  pipelineInfo.layout = skyboxPipelineLayout;
+  pipelineInfo.renderPass = renderPass;
+  pipelineInfo.subpass = 0;
+
+  if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo,
+                                nullptr, &skyboxPipeline) != VK_SUCCESS) {
+    std::cerr << "[Vulkan] Failed to create skybox pipeline" << std::endl;
+    return;
+  }
+
+  skyboxInitialized = true;
+  std::cout << "[Vulkan] Skybox resources initialized successfully"
+            << std::endl;
+}
+
+void VulkanDevice::cleanupSkyboxResources() {
+  if (!skyboxInitialized)
+    return;
+
+  vkDeviceWaitIdle(device);
+
+  if (skyboxPipeline != VK_NULL_HANDLE)
+    vkDestroyPipeline(device, skyboxPipeline, nullptr);
+  if (skyboxPipelineLayout != VK_NULL_HANDLE)
+    vkDestroyPipelineLayout(device, skyboxPipelineLayout, nullptr);
+  if (skyboxVertModule != VK_NULL_HANDLE)
+    vkDestroyShaderModule(device, skyboxVertModule, nullptr);
+  if (skyboxFragModule != VK_NULL_HANDLE)
+    vkDestroyShaderModule(device, skyboxFragModule, nullptr);
+  if (skyboxDescriptorPool != VK_NULL_HANDLE)
+    vkDestroyDescriptorPool(device, skyboxDescriptorPool, nullptr);
+  if (skyboxDescriptorSetLayout != VK_NULL_HANDLE)
+    vkDestroyDescriptorSetLayout(device, skyboxDescriptorSetLayout, nullptr);
+  if (skyboxCubeVB != VK_NULL_HANDLE)
+    vkDestroyBuffer(device, skyboxCubeVB, nullptr);
+  if (skyboxCubeVBMemory != VK_NULL_HANDLE)
+    vkFreeMemory(device, skyboxCubeVBMemory, nullptr);
+
+  for (size_t i = 0; i < skyboxUBOs.size(); i++) {
+    if (skyboxUBOs[i] != VK_NULL_HANDLE)
+      vkDestroyBuffer(device, skyboxUBOs[i], nullptr);
+    if (skyboxUBOMemories[i] != VK_NULL_HANDLE)
+      vkFreeMemory(device, skyboxUBOMemories[i], nullptr);
+  }
+
+  skyboxInitialized = false;
+  std::cout << "[Vulkan] Skybox resources cleaned up" << std::endl;
+}
+
 } // namespace RHI

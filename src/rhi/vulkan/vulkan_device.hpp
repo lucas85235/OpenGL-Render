@@ -54,6 +54,8 @@ struct VulkanTexture {
   VkImageView imageView;
   VkFormat format;
   uint32_t width, height, depth;
+  uint32_t arrayLayers = 1;
+  bool isCubemap = false;
 };
 
 struct VulkanSampler {
@@ -159,10 +161,27 @@ private:
   bool viewportDirty = true;
   bool scissorDirty = true;
 
-  // Descriptors
+  // Descriptors (main PBR pipeline)
   VkDescriptorSetLayout descriptorSetLayout;
   VkDescriptorPool descriptorPool;
   std::vector<VkDescriptorSet> descriptorSets;
+
+  // Skybox dedicated resources (isolated from PBR pipeline)
+  VkDescriptorSetLayout skyboxDescriptorSetLayout = VK_NULL_HANDLE;
+  VkDescriptorPool skyboxDescriptorPool = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSet> skyboxDescriptorSets;
+  VkPipelineLayout skyboxPipelineLayout = VK_NULL_HANDLE;
+  VkPipeline skyboxPipeline = VK_NULL_HANDLE;
+  VkBuffer skyboxCubeVB = VK_NULL_HANDLE;
+  VkDeviceMemory skyboxCubeVBMemory = VK_NULL_HANDLE;
+  std::vector<VkBuffer> skyboxUBOs;
+  std::vector<VkDeviceMemory> skyboxUBOMemories;
+  std::vector<void *> skyboxUBOMapped;
+  VkShaderModule skyboxVertModule = VK_NULL_HANDLE;
+  VkShaderModule skyboxFragModule = VK_NULL_HANDLE;
+  bool skyboxInitialized = false;
+  void initializeSkyboxResources();
+  void cleanupSkyboxResources();
 
   // Uniform Buffers (one per frame) - scene-wide data only
   struct UniformBufferObject {
@@ -269,6 +288,8 @@ public:
   TextureHandle CreateTexture(const TextureDescriptor &desc) override;
   void UpdateTexture(TextureHandle texture, const void *data,
                      uint32_t mipLevel) override;
+  void UpdateTextureCubeFace(TextureHandle texture, CubemapFace face,
+                             const void *data, uint32_t mipLevel) override;
   void GenerateMipmaps(TextureHandle texture) override;
   void DestroyTexture(TextureHandle texture) override;
 
@@ -325,6 +346,8 @@ public:
 
   void Draw(const DrawCommand &cmd) override;
   void DrawIndexed(const DrawIndexedCommand &cmd) override;
+  void DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
+                  const float *viewMatrix, const float *projMatrix) override;
 
   void WaitIdle() override;
 

@@ -9,6 +9,7 @@
 #include "../renderer/model_factory.hpp"
 #include "../renderer/pbr_utils.hpp"
 #include "../renderer/renderer.hpp"
+#include "../renderer/skybox_pass.hpp"
 #include "../rhi/rhi_device.h"
 #include "../rhi/rhi_factory.h"
 #include "../scene/components.hpp"
@@ -30,7 +31,9 @@ private:
   // Shaders
   std::unique_ptr<Shader> pbrShader;
   std::unique_ptr<Shader> screenShader;
-  std::unique_ptr<Shader> skyboxShader;
+
+  // Skybox
+  std::unique_ptr<SkyboxPass> skyboxPass;
 
   // Environment
   PBRUtils::EnvironmentMap envMap;
@@ -149,6 +152,16 @@ private:
 
     // Setup Environment Map
     envMap.SetDevice(rhiDevice.get());
+
+    // Setup Skybox Pass
+    skyboxPass = std::make_unique<SkyboxPass>();
+    std::string shaderPath = (api == RHI::API::Vulkan)
+                                 ? FS::GetPath("shaders/unified")
+                                 : FS::GetPath("shaders");
+    if (!skyboxPass->Initialize(rhiDevice.get(), shaderPath)) {
+      std::cerr << "[App] Failed to initialize SkyboxPass" << std::endl;
+      // Continue without skybox - not fatal
+    }
 
     return true;
   }
@@ -275,6 +288,12 @@ private:
     if (activeScene)
       activeScene->OnRender(renderer);
     renderer.EndScene();
+
+    // Render skybox using dedicated RHI method (isolated from PBR pipeline)
+    if (envMap.IsValid()) {
+      rhiDevice->DrawSkybox(envMap.GetCubemap(), envMap.GetSampler(),
+                            glm::value_ptr(view), glm::value_ptr(proj));
+    }
 
     rhiDevice->EndFrame();
   }

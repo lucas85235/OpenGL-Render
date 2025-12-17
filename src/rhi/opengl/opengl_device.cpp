@@ -591,6 +591,32 @@ void OpenGLDevice::UpdateTexture(TextureHandle texture, const void *data,
   glBindTexture(it->second.target, 0);
 }
 
+void OpenGLDevice::UpdateTextureCubeFace(TextureHandle texture,
+                                         CubemapFace face, const void *data,
+                                         uint32_t mipLevel) {
+  auto it = textures.find(texture.id);
+  if (it == textures.end())
+    return;
+
+  if (it->second.target != GL_TEXTURE_CUBE_MAP) {
+    std::cerr << "[OpenGL] UpdateTextureCubeFace: texture is not a cubemap"
+              << std::endl;
+    return;
+  }
+
+  glBindTexture(GL_TEXTURE_CUBE_MAP, it->second.id);
+
+  GLenum format = ToGLTextureFormat(it->second.format);
+  GLenum internalFormat = ToGLTextureInternalFormat(it->second.format);
+  GLenum type = ToGLTextureType(it->second.format);
+  GLenum faceTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X + static_cast<int>(face);
+
+  glTexImage2D(faceTarget, mipLevel, internalFormat, it->second.width,
+               it->second.height, 0, format, type, data);
+
+  glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+}
+
 void OpenGLDevice::GenerateMipmaps(TextureHandle texture) {
   auto it = textures.find(texture.id);
   if (it == textures.end())
@@ -1187,6 +1213,16 @@ void OpenGLDevice::DrawIndexed(const DrawIndexedCommand &cmd) {
   } else {
     glDrawElements(topology, cmd.indexCount, indexType, indexOffset);
   }
+}
+
+void OpenGLDevice::DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
+                              const float *viewMatrix,
+                              const float *projMatrix) {
+  // OpenGL skybox is handled by SkyboxPass using standard BindTexture/Draw
+  // This method is primarily for Vulkan's isolated pipeline approach
+  // For OpenGL, the caller should use SkyboxPass directly
+  std::cout << "[OpenGL] DrawSkybox: use SkyboxPass for OpenGL skybox rendering"
+            << std::endl;
 }
 
 void OpenGLDevice::WaitIdle() { glFinish(); }

@@ -113,6 +113,8 @@ public:
   TextureHandle CreateTexture(const TextureDescriptor &desc) override;
   void UpdateTexture(TextureHandle texture, const void *data,
                      uint32_t mipLevel) override;
+  void UpdateTextureCubeFace(TextureHandle texture, CubemapFace face,
+                             const void *data, uint32_t mipLevel) override;
   void GenerateMipmaps(TextureHandle texture) override;
   void DestroyTexture(TextureHandle texture) override;
 
@@ -169,6 +171,8 @@ public:
 
   void Draw(const DrawCommand &cmd) override;
   void DrawIndexed(const DrawIndexedCommand &cmd) override;
+  void DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
+                  const float *viewMatrix, const float *projMatrix) override;
 
   void WaitIdle() override;
 };

@@ -1,0 +1,213 @@
+#ifndef SKYBOX_PASS_HPP
+#define SKYBOX_PASS_HPP
+
+#include "../rhi/rhi_device.h"
+#include "shader.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <iostream>
+#include <memory>
+
+/**
+ * @brief RHI-based skybox rendering pass
+ *
+ * Renders a cubemap environment as an infinite background. Uses depth test
+ * with LEQUAL comparison and disables depth write so it doesn't occlude
+ * geometry. The view matrix translation is removed in the shader to keep the
+ * skybox fixed.
+ */
+class SkyboxPass {
+private:
+  RHI::IDevice *device = nullptr;
+
+  RHI::BufferHandle vertexBuffer;
+  RHI::VertexArrayHandle vao;
+  RHI::PipelineHandle pipeline;
+  RHI::SamplerHandle sampler;
+  RHI::TextureHandle environmentMap;
+
+  std::unique_ptr<Shader> shader;
+  bool initialized = false;
+
+  static constexpr float cubeVertices[] = {
+      // Back face (-Z)
+      -1.0f, 1.0f, -1.0f, 1.0f, 1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, -1.0f,
+      -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f,
+      // Front face (+Z)
+      -1.0f, -1.0f, 1.0f, 1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+      -1.0f, 1.0f, 1.0f, -1.0f, -1.0f, 1.0f,
+      // Left face (-X)
+      -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f,
+      1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f,
+      // Right face (+X)
+      1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, -1.0f,
+      -1.0f, 1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+      // Bottom face (-Y)
+      -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f, -1.0f,
+      1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f,
+      // Top face (+Y)
+      -1.0f, 1.0f, -1.0f, 1.0f, 1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+      -1.0f, 1.0f, 1.0f, -1.0f, 1.0f, -1.0f};
+
+public:
+  SkyboxPass() = default;
+
+  ~SkyboxPass() { Shutdown(); }
+
+  bool Initialize(RHI::IDevice *dev, const std::string &shaderBasePath) {
+    if (initialized)
+      return true;
+    if (!dev)
+      return false;
+
+    device = dev;
+    std::cout << "[SkyboxPass] Initializing..." << std::endl;
+
+    // Create vertex buffer with cube geometry
+    RHI::BufferDescriptor vbDesc;
+    vbDesc.type = RHI::BufferType::Vertex;
+    vbDesc.usage = RHI::BufferUsage::Static;
+    vbDesc.size = sizeof(cubeVertices);
+    vbDesc.data = cubeVertices;
+    vertexBuffer = device->CreateBuffer(vbDesc);
+
+    if (!RHI::IsValid(vertexBuffer)) {
+      std::cerr << "[SkyboxPass] Failed to create vertex buffer" << std::endl;
+      return false;
+    }
+
+    // Create vertex layout (position only)
+    RHI::VertexLayout layout;
+    layout.stride = sizeof(float) * 3;
+    layout.attributes = {{0, RHI::VertexAttributeType::Float3, 0, false}};
+
+    vao = device->CreateVertexArray(vertexBuffer, RHI::BufferHandle{0}, layout);
+    if (!RHI::IsValid(vao)) {
+      std::cerr << "[SkyboxPass] Failed to create VAO" << std::endl;
+      return false;
+    }
+
+    // Create sampler for cubemap
+    RHI::SamplerDescriptor samplerDesc;
+    samplerDesc.wrapS = RHI::TextureWrapMode::ClampToEdge;
+    samplerDesc.wrapT = RHI::TextureWrapMode::ClampToEdge;
+    samplerDesc.wrapR = RHI::TextureWrapMode::ClampToEdge;
+    samplerDesc.minFilter = RHI::TextureFilterMode::Linear;
+    samplerDesc.magFilter = RHI::TextureFilterMode::Linear;
+    sampler = device->CreateSampler(samplerDesc);
+
+    // Load shader
+    shader = std::make_unique<Shader>(device);
+
+    if (device->GetAPI() == RHI::API::Vulkan) {
+      if (!shader->CompileFromSPIRV(shaderBasePath + "/skybox.vert.spv",
+                                    shaderBasePath + "/skybox.frag.spv")) {
+        std::cerr << "[SkyboxPass] Failed to compile Vulkan shaders"
+                  << std::endl;
+        return false;
+      }
+    } else {
+      if (!shader->CompileFromFile(shaderBasePath + "/skybox.vert",
+                                   shaderBasePath + "/skybox.frag")) {
+        std::cerr << "[SkyboxPass] Failed to compile OpenGL shaders"
+                  << std::endl;
+        return false;
+      }
+    }
+
+    // Create pipeline with skybox-specific states
+    RHI::PipelineDescriptor pipelineDesc;
+    pipelineDesc.topology = RHI::PrimitiveTopology::TriangleList;
+
+    // Depth: test enabled with LEQUAL, write disabled
+    pipelineDesc.depthStencil.depthTestEnable = true;
+    pipelineDesc.depthStencil.depthWriteEnable = false;
+    pipelineDesc.depthStencil.depthCompareOp = RHI::CompareOp::LessOrEqual;
+
+    // Cull front faces (we're inside the cube looking out)
+    pipelineDesc.rasterizer.cullMode = RHI::CullMode::Front;
+    pipelineDesc.rasterizer.frontFace = RHI::FrontFace::CounterClockwise;
+
+    pipeline =
+        device->CreatePipeline(pipelineDesc, shader->GetHandle(), layout);
+    if (!RHI::IsValid(pipeline)) {
+      std::cerr << "[SkyboxPass] Failed to create pipeline" << std::endl;
+      return false;
+    }
+
+    initialized = true;
+    std::cout << "[SkyboxPass] Initialized successfully" << std::endl;
+    return true;
+  }
+
+  void SetEnvironmentMap(RHI::TextureHandle cubemap) {
+    environmentMap = cubemap;
+  }
+
+  void Render(const glm::mat4 &view, const glm::mat4 &projection) {
+    if (!initialized || !device || !RHI::IsValid(environmentMap)) {
+      return;
+    }
+
+    // Bind skybox pipeline
+    device->BindPipeline(pipeline);
+    device->BindVertexArray(vao);
+
+    // Bind environment cubemap to slot 0
+    device->BindTexture(0, environmentMap);
+    device->BindSampler(0, sampler);
+
+    // Set uniforms (view without translation, projection as-is)
+    // Remove translation from view matrix
+    glm::mat4 viewRotOnly = glm::mat4(glm::mat3(view));
+
+    shader->SetMat4("view", glm::value_ptr(viewRotOnly));
+    shader->SetMat4("projection", glm::value_ptr(projection));
+    shader->SetInt("skybox", 0);
+
+    // Draw the cube
+    RHI::DrawCommand cmd;
+    cmd.vertexCount = 36;
+    cmd.instanceCount = 1;
+    cmd.firstVertex = 0;
+    device->Draw(cmd);
+  }
+
+  void Shutdown() {
+    if (!device)
+      return;
+
+    if (RHI::IsValid(pipeline)) {
+      device->DestroyPipeline(pipeline);
+      pipeline = RHI::PipelineHandle{0};
+    }
+    if (RHI::IsValid(vao)) {
+      device->DestroyVertexArray(vao);
+      vao = RHI::VertexArrayHandle{0};
+    }
+    if (RHI::IsValid(vertexBuffer)) {
+      device->DestroyBuffer(vertexBuffer);
+      vertexBuffer = RHI::BufferHandle{0};
+    }
+    if (RHI::IsValid(sampler)) {
+      device->DestroySampler(sampler);
+      sampler = RHI::SamplerHandle{0};
+    }
+
+    shader.reset();
+    initialized = false;
+    std::cout << "[SkyboxPass] Shutdown complete" << std::endl;
+  }
+
+  bool IsInitialized() const { return initialized; }
+
+  // Prevent copy
+  SkyboxPass(const SkyboxPass &) = delete;
+  SkyboxPass &operator=(const SkyboxPass &) = delete;
+
+  // Allow move
+  SkyboxPass(SkyboxPass &&) noexcept = default;
+  SkyboxPass &operator=(SkyboxPass &&) noexcept = default;
+};
+
+#endif // SKYBOX_PASS_HPP
