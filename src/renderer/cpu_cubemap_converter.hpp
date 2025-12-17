@@ -159,5 +159,3 @@ public:
 };
 
 #endif // CPU_CUBEMAP_CONVERTER_HPP
-
-#endif // CPU_CUBEMAP_CONVERTER_HPP

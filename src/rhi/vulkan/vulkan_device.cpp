@@ -1617,8 +1617,8 @@ void VulkanDevice::UpdateTextureCubeFace(TextureHandle texture,
   std::cout << "[Vulkan] UpdateTextureCubeFace: face=" << faceLayer
             << " mip=" << mipLevel << std::endl;
 
-  // Use half-float (16-bit) data - each pixel is 4 floats = 16 bytes
-  VkDeviceSize imageSize = it->second.width * it->second.height * 16;
+  // RGBA16F = 4 components × 2 bytes (half-float) = 8 bytes per pixel
+  VkDeviceSize imageSize = it->second.width * it->second.height * 8;
 
   VkBuffer stagingBuffer;
   VkDeviceMemory stagingBufferMemory;
