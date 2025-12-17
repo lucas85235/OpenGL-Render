@@ -1,7 +1,7 @@
 #include "opengl_device.hpp"
 #include "../shader_cross_compiler.hpp"
+#include <cstring>
 #include <iostream>
-
 namespace RHI {
 
 OpenGLDevice::~OpenGLDevice() { Shutdown(); }
@@ -217,6 +217,7 @@ GLenum OpenGLDevice::ToGLTextureType(TextureFormat format) {
   case TextureFormat::RG16F:
   case TextureFormat::RGB16F:
   case TextureFormat::RGBA16F:
+    return GL_HALF_FLOAT;
   case TextureFormat::R32F:
   case TextureFormat::RG32F:
   case TextureFormat::RGB32F:
@@ -1215,14 +1216,206 @@ void OpenGLDevice::DrawIndexed(const DrawIndexedCommand &cmd) {
   }
 }
 
+void OpenGLDevice::initializeSkyboxResources() {
+  std::cout << "[OpenGL] Initializing dedicated skybox resources..."
+            << std::endl;
+
+  // Skybox vertex shader (GLSL)
+  const char *vertexShaderSource = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+out vec3 fragTexCoord;
+
+uniform mat4 projection;
+uniform mat4 view;
+
+void main() {
+    fragTexCoord = vec3(aPos.x, -aPos.y, aPos.z);
+    vec4 pos = projection * view * vec4(aPos, 1.0);
+    gl_Position = pos.xyww;
+}
+)";
+
+  // Skybox fragment shader (GLSL)
+  const char *fragmentShaderSource = R"(
+#version 330 core
+in vec3 fragTexCoord;
+out vec4 fragColor;
+
+uniform samplerCube skybox;
+
+void main() {
+    vec3 color = texture(skybox, fragTexCoord).rgb;
+    
+    // Tone mapping (Reinhard)
+    color = color / (color + vec3(1.0));
+    
+    // Gamma correction
+    color = pow(color, vec3(1.0/2.2));
+    
+    fragColor = vec4(color, 1.0);
+}
+)";
+
+  // Compile vertex shader
+  GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+  glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
+  glCompileShader(vertexShader);
+
+  GLint success;
+  glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+  if (!success) {
+    char infoLog[512];
+    glGetShaderInfoLog(vertexShader, 512, nullptr, infoLog);
+    std::cerr << "[OpenGL] Skybox vertex shader error: " << infoLog
+              << std::endl;
+  }
+
+  // Compile fragment shader
+  GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+  glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
+  glCompileShader(fragmentShader);
+
+  glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+  if (!success) {
+    char infoLog[512];
+    glGetShaderInfoLog(fragmentShader, 512, nullptr, infoLog);
+    std::cerr << "[OpenGL] Skybox fragment shader error: " << infoLog
+              << std::endl;
+  }
+
+  // Link program
+  skyboxShaderProgram = glCreateProgram();
+  glAttachShader(skyboxShaderProgram, vertexShader);
+  glAttachShader(skyboxShaderProgram, fragmentShader);
+  glLinkProgram(skyboxShaderProgram);
+
+  glGetProgramiv(skyboxShaderProgram, GL_LINK_STATUS, &success);
+  if (!success) {
+    char infoLog[512];
+    glGetProgramInfoLog(skyboxShaderProgram, 512, nullptr, infoLog);
+    std::cerr << "[OpenGL] Skybox shader link error: " << infoLog << std::endl;
+  }
+
+  glDeleteShader(vertexShader);
+  glDeleteShader(fragmentShader);
+
+  // Skybox cube vertices (drawn from inside)
+  float cubeVertices[] = {
+      -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, 1.0f,
+      -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f,
+      1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, 1.0f,  -1.0f,
+      -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,
+      -1.0f, 1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,
+      -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  -1.0f, 1.0f,  1.0f,
+      1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  -1.0f, 1.0f,  -1.0f,
+      -1.0f, 1.0f,  -1.0f, 1.0f,  -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f,  1.0f,
+      1.0f,  1.0f,  1.0f,  1.0f,  -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f,  -1.0f,
+      -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,
+      -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f,
+  };
+
+  // Create VAO and VBO
+  glGenVertexArrays(1, &skyboxVAO);
+  glGenBuffers(1, &skyboxVBO);
+
+  glBindVertexArray(skyboxVAO);
+  glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices,
+               GL_STATIC_DRAW);
+
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+
+  glBindVertexArray(0);
+
+  skyboxInitialized = true;
+  std::cout << "[OpenGL] Skybox resources initialized successfully"
+            << std::endl;
+}
+
 void OpenGLDevice::DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
                               const float *viewMatrix,
                               const float *projMatrix) {
-  // OpenGL skybox is handled by SkyboxPass using standard BindTexture/Draw
-  // This method is primarily for Vulkan's isolated pipeline approach
-  // For OpenGL, the caller should use SkyboxPass directly
-  std::cout << "[OpenGL] DrawSkybox: use SkyboxPass for OpenGL skybox rendering"
-            << std::endl;
+  auto texIt = textures.find(cubemap.id);
+  if (texIt == textures.end()) {
+    return;
+  }
+
+  if (!skyboxInitialized) {
+    initializeSkyboxResources();
+    if (!skyboxInitialized) {
+      std::cerr << "[OpenGL] Failed to initialize skybox resources"
+                << std::endl;
+      return;
+    }
+  }
+
+  // Save current state
+  GLint previousProgram;
+  glGetIntegerv(GL_CURRENT_PROGRAM, &previousProgram);
+  GLboolean previousDepthMask;
+  glGetBooleanv(GL_DEPTH_WRITEMASK, &previousDepthMask);
+  GLint previousDepthFunc;
+  glGetIntegerv(GL_DEPTH_FUNC, &previousDepthFunc);
+  GLint previousCullFaceMode;
+  glGetIntegerv(GL_CULL_FACE_MODE, &previousCullFaceMode);
+  GLboolean previousCullFaceEnabled = glIsEnabled(GL_CULL_FACE);
+
+  // Set skybox state
+  glDepthFunc(GL_LEQUAL);
+  glDepthMask(GL_FALSE);
+  glDisable(GL_CULL_FACE); // Draw both sides just in case
+
+  // Use skybox shader
+  glUseProgram(skyboxShaderProgram);
+
+  // Remove translation from view matrix
+  float viewRotOnly[16];
+  memcpy(viewRotOnly, viewMatrix, sizeof(viewRotOnly));
+  viewRotOnly[12] = 0.0f;
+  viewRotOnly[13] = 0.0f;
+  viewRotOnly[14] = 0.0f;
+
+  // Set uniforms
+  GLint viewLoc = glGetUniformLocation(skyboxShaderProgram, "view");
+  GLint projLoc = glGetUniformLocation(skyboxShaderProgram, "projection");
+  GLint skyboxLoc = glGetUniformLocation(skyboxShaderProgram, "skybox");
+
+  glUniformMatrix4fv(viewLoc, 1, GL_FALSE, viewRotOnly);
+  glUniformMatrix4fv(projLoc, 1, GL_FALSE, projMatrix);
+  glUniform1i(skyboxLoc, 0);
+
+  // Bind cubemap texture
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_CUBE_MAP, texIt->second.id);
+
+  // Apply sampler if available
+  auto sampIt = samplers.find(sampler.id);
+  if (sampIt != samplers.end()) {
+    glBindSampler(0, sampIt->second.id);
+  }
+
+  // Draw skybox cube
+  glBindVertexArray(skyboxVAO);
+  glDrawArrays(GL_TRIANGLES, 0, 36);
+  glBindVertexArray(0);
+
+  // Restore previous state
+  glDepthFunc(previousDepthFunc);
+  glDepthMask(previousDepthMask);
+  glCullFace(previousCullFaceMode);
+  if (previousCullFaceEnabled) {
+    glEnable(GL_CULL_FACE);
+  } else {
+    glDisable(GL_CULL_FACE);
+  }
+  glUseProgram(previousProgram);
+
+  // Unbind sampler
+  if (sampIt != samplers.end()) {
+    glBindSampler(0, 0);
+  }
 }
 
 void OpenGLDevice::WaitIdle() { glFinish(); }

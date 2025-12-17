@@ -69,6 +69,13 @@ private:
   ClearColor clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
   float clearDepth = 1.0f;
 
+  // Skybox dedicated resources
+  GLuint skyboxShaderProgram = 0;
+  GLuint skyboxVAO = 0;
+  GLuint skyboxVBO = 0;
+  bool skyboxInitialized = false;
+  void initializeSkyboxResources();
+
   GLenum ToGLBufferTarget(BufferType type);
   GLenum ToGLBufferUsage(BufferUsage usage);
   GLenum ToGLTextureTarget(TextureType type);
