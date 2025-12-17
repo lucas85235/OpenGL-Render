@@ -152,6 +152,44 @@ if(SHADER_COMPILER)
     endforeach()
     
     add_custom_target(compile_shaders ALL DEPENDS ${SPIRV_OUTPUTS})
+    
+    # ==========================================
+    # Unified Shader Format (.shader -> SPIR-V)
+    # Uses Python preprocessor for multi-stage shaders
+    # ==========================================
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_FOUND)
+        set(UNIFIED_SHADER_SCRIPT "${CMAKE_SOURCE_DIR}/tools/compile_shaders.py")
+        set(UNIFIED_SHADER_INPUT_DIR "${CMAKE_SOURCE_DIR}/src/shaders")
+        set(UNIFIED_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
+        
+        file(GLOB SHADER_FILES "${UNIFIED_SHADER_INPUT_DIR}/*.shader")
+        
+        if(SHADER_FILES)
+            set(UNIFIED_SPIRV_OUTPUTS)
+            foreach(SHADER ${SHADER_FILES})
+                get_filename_component(SHADER_NAME ${SHADER} NAME_WE)
+                list(APPEND UNIFIED_SPIRV_OUTPUTS 
+                    "${UNIFIED_SHADER_OUTPUT_DIR}/${SHADER_NAME}.vert.spv"
+                    "${UNIFIED_SHADER_OUTPUT_DIR}/${SHADER_NAME}.frag.spv"
+                )
+            endforeach()
+            
+            add_custom_command(
+                OUTPUT ${UNIFIED_SPIRV_OUTPUTS}
+                COMMAND ${Python3_EXECUTABLE} ${UNIFIED_SHADER_SCRIPT}
+                    ${UNIFIED_SHADER_INPUT_DIR} ${UNIFIED_SHADER_OUTPUT_DIR}
+                    --api vulkan --version 450
+                DEPENDS ${SHADER_FILES} ${UNIFIED_SHADER_SCRIPT}
+                COMMENT "Compiling unified .shader files to SPIR-V"
+            )
+            
+            add_custom_target(compile_unified_shaders ALL DEPENDS ${UNIFIED_SPIRV_OUTPUTS})
+            message(STATUS "Found unified .shader files - compile_unified_shaders target added")
+        endif()
+    else()
+        message(WARNING "Python3 not found - unified .shader compilation disabled")
+    endif()
 else()
     message(FATAL_ERROR "No SPIR-V shader compiler found. Install glslang-tools or Vulkan SDK.")
 endif()
@@ -221,3 +259,8 @@ target_compile_definitions(${EXECUTABLE_NAME} PRIVATE ROOT_DIR="${CMAKE_SOURCE_D
 
 # Garante que usamos C++17 para ter acesso ao std::filesystem
 target_compile_features(${EXECUTABLE_NAME} PRIVATE cxx_std_17)
+
+# Add dependency on unified shader compilation if target exists
+if(TARGET compile_unified_shaders)
+    add_dependencies(${EXECUTABLE_NAME} compile_unified_shaders)
+endif()
