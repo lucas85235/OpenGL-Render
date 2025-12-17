@@ -284,16 +284,18 @@ private:
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), window->GetAspect(),
                                       0.1f, 100.0f);
 
-    renderer.BeginScene(view, proj, cameraPos);
-    if (activeScene)
-      activeScene->OnRender(renderer);
-    renderer.EndScene();
-
-    // Render skybox using dedicated RHI method (isolated from PBR pipeline)
+    // Render skybox FIRST (uses LEQUAL depth, writes at max depth)
+    // This ensures the PBR pipeline state is not corrupted by skybox
     if (envMap.IsValid()) {
       rhiDevice->DrawSkybox(envMap.GetCubemap(), envMap.GetSampler(),
                             glm::value_ptr(view), glm::value_ptr(proj));
     }
+
+    // Now render scene with PBR pipeline (re-binds PBR descriptors)
+    renderer.BeginScene(view, proj, cameraPos);
+    if (activeScene)
+      activeScene->OnRender(renderer);
+    renderer.EndScene();
 
     rhiDevice->EndFrame();
   }

@@ -1041,8 +1041,8 @@ void VulkanDevice::createDummyTexture() {
 
   VkSamplerCreateInfo samplerInfo{};
   samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  samplerInfo.magFilter = VK_FILTER_NEAREST;
-  samplerInfo.minFilter = VK_FILTER_NEAREST;
+  samplerInfo.magFilter = VK_FILTER_LINEAR;
+  samplerInfo.minFilter = VK_FILTER_LINEAR;
   samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -1050,7 +1050,7 @@ void VulkanDevice::createDummyTexture() {
   samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
   samplerInfo.unnormalizedCoordinates = VK_FALSE;
   samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
   if (vkCreateSampler(device, &samplerInfo, nullptr, &dummySampler) !=
       VK_SUCCESS) {
@@ -2522,37 +2522,14 @@ void VulkanDevice::BindTexture(uint32_t slot, TextureHandle texture) {
             << " -> binding=" << (1 + slot) << ", texId=" << texture.id
             << std::endl;
 
-  // Get or create default sampler
-  VkSampler texSampler = VK_NULL_HANDLE;
-  if (!samplers.empty()) {
-    texSampler = samplers.begin()->second.sampler;
-  } else {
-    VkSamplerCreateInfo samplerInfo{};
-    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_LINEAR;
-    samplerInfo.minFilter = VK_FILTER_LINEAR;
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.anisotropyEnable = VK_FALSE;
-    samplerInfo.maxAnisotropy = 1.0f;
-    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    samplerInfo.unnormalizedCoordinates = VK_FALSE;
-    samplerInfo.compareEnable = VK_FALSE;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-    VkSampler newSampler;
-    if (vkCreateSampler(device, &samplerInfo, nullptr, &newSampler) ==
-        VK_SUCCESS) {
-      VulkanSampler vs;
-      vs.sampler = newSampler;
-      samplers[nextId] = vs;
-      texSampler = newSampler;
-      nextId++;
-    } else {
-      std::cerr << "[Vulkan] Failed to create default sampler" << std::endl;
-      return;
-    }
+  // Use dummySampler which is configured for 2D textures with REPEAT mode
+  // Don't use samplers.begin() because it might return cubemap sampler with
+  // CLAMP_TO_EDGE
+  VkSampler texSampler = dummySampler;
+  if (texSampler == VK_NULL_HANDLE) {
+    std::cerr << "[Vulkan] BindTexture: dummySampler not initialized"
+              << std::endl;
+    return;
   }
 
   // Update descriptor set - slot 0 goes to binding 1, etc.
