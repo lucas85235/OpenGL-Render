@@ -61,28 +61,32 @@ public:
     window = std::make_unique<Window>(width, height, title);
   }
 
-  void Run() {
-    if (!Init())
-      return;
+  bool Initialize() {
+    if (!InitInternal())
+      return false;
 
     LoadContent();
-
-    float lastFrame = 0.0f;
-    while (!window->ShouldClose()) {
-      float currentFrame = static_cast<float>(glfwGetTime());
-      float deltaTime = currentFrame - lastFrame;
-      lastFrame = currentFrame;
-
-      ProcessInput(deltaTime);
-      Update(deltaTime);
-      Render();
-
-      window->OnUpdate();
-    }
+    return true;
   }
 
+  void Tick() {
+    float currentFrame = static_cast<float>(glfwGetTime());
+    float deltaTime = currentFrame - lastFrame;
+    lastFrame = currentFrame;
+
+    ProcessInput(deltaTime);
+    Update(deltaTime);
+    Render();
+
+    window->OnUpdate();
+  }
+
+  bool ShouldClose() const { return window->ShouldClose(); }
+
 private:
-  bool Init() {
+  float lastFrame = 0.0f;
+
+  bool InitInternal() {
     // Choose API
     RHI::API api = RHI::API::OpenGL;
 
