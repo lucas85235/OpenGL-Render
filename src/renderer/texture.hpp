@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "../core/vfs/file_system.hpp"
 #include "stb_image.h"
 
 enum class TextureType {
@@ -144,34 +145,25 @@ public:
 
   void SetDevice(RHI::IDevice *dev) { device = dev; }
 
-  bool LoadFromFile(const std::string &filepath, TextureType texType,
+  bool LoadFromFile(IFileSystem *fs, const std::string &filepath,
+                    TextureType texType,
                     const TextureParams &params = TextureParams()) {
-    if (!device) {
-      std::cerr << "[Texture] No device set" << std::endl;
+    if (!device || !fs) {
+      std::cerr << "[Texture] Device or FS not set" << std::endl;
       return false;
     }
 
     path = filepath;
     type = texType;
-    stbi_set_flip_vertically_on_load(params.flipVertically);
-    unsigned char *data =
-        stbi_load(filepath.c_str(), &width, &height, &channels, 4);
-    channels = 4;
 
-    if (!data) {
-      std::cerr << "[Texture] Failed to load: " << filepath << std::endl;
+    // Read file via VFS
+    std::vector<uint8_t> fileData = fs->ReadFile(filepath);
+    if (fileData.empty()) {
+      std::cerr << "[Texture] Failed to read file: " << filepath << std::endl;
       return false;
     }
 
-    bool result = CreateTextureRHI(data, params);
-    stbi_image_free(data);
-
-    if (result) {
-      loaded = true;
-      std::cout << "[Texture] Loaded: " << filepath << " (" << width << "x"
-                << height << ")" << std::endl;
-    }
-    return result;
+    return LoadFromMemory(fileData.data(), fileData.size(), texType, params);
   }
 
   bool LoadFromMemory(unsigned char *data, int length, TextureType texType,
@@ -304,11 +296,15 @@ class TextureManager {
 private:
   std::map<std::string, std::shared_ptr<Texture>> cache;
   RHI::IDevice *device = nullptr;
+  IFileSystem *fs = nullptr;
 
 public:
   TextureManager() = default;
 
-  void SetDevice(RHI::IDevice *dev) { device = dev; }
+  void Initialize(RHI::IDevice *dev, IFileSystem *fileSys) {
+    device = dev;
+    fs = fileSys;
+  }
 
   std::shared_ptr<Texture>
   LoadTexture(const std::string &path, TextureType type,
@@ -318,7 +314,7 @@ public:
       return it->second;
 
     auto texture = std::make_shared<Texture>(device);
-    if (texture->LoadFromFile(path, type, params)) {
+    if (texture->LoadFromFile(fs, path, type, params)) {
       cache[path] = texture;
       return texture;
     }

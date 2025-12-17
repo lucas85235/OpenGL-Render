@@ -8,8 +8,9 @@ RenderContext::RenderContext(RHI::API api, void *nativeWindow)
 
 RenderContext::~RenderContext() { Shutdown(); }
 
-bool RenderContext::Initialize() {
+bool RenderContext::Initialize(IFileSystem *fs) {
   std::cout << "[RenderContext] Initializing..." << std::endl;
+  this->fileSystem = fs;
 
   // Create RHI Device
   device = RHI::CreateDevice(api, reinterpret_cast<GLFWwindow *>(nativeWindow));
@@ -38,9 +39,10 @@ bool RenderContext::Initialize() {
   // I will write the code assuming TextureManager constructor is public.
   // This file might not compile until I refactor TextureManager.
   textureManager = std::make_unique<TextureManager>();
-  textureManager->SetDevice(device.get());
+  textureManager->Initialize(device.get(), fileSystem);
 
-  shaderManager = std::make_unique<ShaderManager>(device.get(), api);
+  shaderManager =
+      std::make_unique<ShaderManager>(device.get(), fileSystem, api);
 
   return true;
 }

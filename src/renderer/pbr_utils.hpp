@@ -20,6 +20,9 @@
 extern "C" {
 extern float *stbi_loadf(char const *filename, int *x, int *y,
                          int *channels_in_file, int desired_channels);
+extern float *stbi_loadf_from_memory(unsigned char const *buffer, int len,
+                                     int *x, int *y, int *channels_in_file,
+                                     int desired_channels);
 extern void stbi_image_free(void *retval_from_stbi_load);
 extern void stbi_set_flip_vertically_on_load(int flag_true_if_should_flip);
 }
@@ -34,6 +37,7 @@ private:
   static constexpr int BRDF_SIZE = 512;
 
   RHI::IDevice *device = nullptr;
+  IFileSystem *fs = nullptr;
 
   void SetupCaptureMatrices(glm::mat4 *views, glm::mat4 &proj) {
     proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
@@ -81,7 +85,10 @@ public:
     }
   }
 
-  void SetDevice(RHI::IDevice *dev) { device = dev; }
+  void Initialize(RHI::IDevice *dev, IFileSystem *fileSys) {
+    device = dev;
+    fs = fileSys;
+  }
 
   void LoadFromHDR(const std::string &path) {
     if (!device) {
@@ -91,11 +98,23 @@ public:
 
     std::cout << "[IBL] Loading HDR: " << path << std::endl;
 
-    // Load HDR data directly using stb_image
+    if (!fs) {
+      std::cerr << "[IBL] FileSystem not set!" << std::endl;
+      return;
+    }
+
+    // Load HDR data via VFS
+    std::vector<uint8_t> fileData = fs->ReadFile(path);
+    if (fileData.empty()) {
+      std::cerr << "[IBL] Failed to read HDR file: " << path << std::endl;
+      return;
+    }
+
     int hdrWidth, hdrHeight, hdrChannels;
     stbi_set_flip_vertically_on_load(true);
     float *hdrData =
-        stbi_loadf(path.c_str(), &hdrWidth, &hdrHeight, &hdrChannels, 0);
+        stbi_loadf_from_memory(fileData.data(), fileData.size(), &hdrWidth,
+                               &hdrHeight, &hdrChannels, 0);
 
     if (!hdrData) {
       std::cerr << "[IBL] Failed to load HDR: " << path << std::endl;

@@ -14,11 +14,13 @@
 #include "../renderer/render_graph/skybox_pass_node.hpp"
 #include "../scene/components.hpp"
 #include "filesystem.hpp"
+#include "vfs/native_file_system.hpp"
 #include "window.hpp"
 
 class Application {
 private:
   std::unique_ptr<Window> window;
+  std::unique_ptr<IFileSystem> fileSystem;
 
   // RHI Device
   std::unique_ptr<RenderContext> renderContext;
@@ -94,10 +96,13 @@ private:
     if (!window->Init(createGLContext))
       return false;
 
+    // Initialize FileSystem
+    fileSystem = std::make_unique<NativeFileSystem>();
+
     // Create Render Context
     renderContext =
         std::make_unique<RenderContext>(api, window->GetNativeWindow());
-    if (!renderContext->Initialize()) {
+    if (!renderContext->Initialize(fileSystem.get())) {
       std::cerr << "[App] Failed to initialize RenderContext!" << std::endl;
       return false;
     }
@@ -157,7 +162,7 @@ private:
     }
 
     // Setup Environment Map
-    envMap.SetDevice(rhiDevice);
+    envMap.Initialize(rhiDevice, fileSystem.get());
 
     // Setup Render Graph
     renderGraph = std::make_unique<RenderGraph>(renderContext.get());

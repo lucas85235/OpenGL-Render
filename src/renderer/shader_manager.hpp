@@ -1,7 +1,7 @@
 #ifndef SHADER_MANAGER_HPP
 #define SHADER_MANAGER_HPP
 
-#include "../core/filesystem.hpp"
+#include "../core/vfs/file_system.hpp"
 #include "shader.hpp"
 #include <memory>
 #include <string>
@@ -11,11 +11,12 @@ class ShaderManager {
 private:
   std::unordered_map<std::string, std::shared_ptr<Shader>> shaders;
   RHI::IDevice *device = nullptr;
+  IFileSystem *fs = nullptr;
   RHI::API api;
 
 public:
-  ShaderManager(RHI::IDevice *dev, RHI::API apiType)
-      : device(dev), api(apiType) {}
+  ShaderManager(RHI::IDevice *dev, IFileSystem *fileSys, RHI::API apiType)
+      : device(dev), fs(fileSys), api(apiType) {}
 
   std::shared_ptr<Shader> LoadShader(const std::string &name,
                                      const std::string &vertexPath,
@@ -45,10 +46,13 @@ public:
     // Let's allow passing direct paths for now to match current behavior.
     // Note: The previous code used FS::GetPath.
 
+    std::string vertAbs = fs->GetAbsolutePath(vertexPath);
+    std::string fragAbs = fs->GetAbsolutePath(fragmentPath);
+
     if (api == RHI::API::Vulkan) {
-      result = shader->CompileFromSPIRV(vertexPath, fragmentPath);
+      result = shader->CompileFromSPIRV(vertAbs, fragAbs);
     } else {
-      result = shader->CompileFromFile(vertexPath, fragmentPath);
+      result = shader->CompileFromFile(vertAbs, fragAbs);
     }
 
     if (result) {
