@@ -105,6 +105,16 @@ def generate_stage_glsl(version: int, common: str, resources: str, stage_code: s
 
 def process_shader_file(shader_path: Path, output_dir: Path, api: str, version: int) -> bool:
     """Process a .shader file and generate SPIR-V binaries."""
+    shader_name = shader_path.stem
+    
+    # Skip API-specific shaders that don't match the target API
+    if api == 'vulkan' and shader_name.endswith('_opengl'):
+        print(f'[Shader] Skipping {shader_path.name} (OpenGL-only shader)')
+        return True
+    if api == 'opengl' and shader_name.endswith('_vulkan'):
+        print(f'[Shader] Skipping {shader_path.name} (Vulkan-only shader)')
+        return True
+    
     print(f'[Shader] Processing: {shader_path.name}')
     
     source = shader_path.read_text()

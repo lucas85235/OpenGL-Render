@@ -1,6 +1,6 @@
 //====================================================================
-// PBR Shader - Unified Format
-// Single file containing vertex and fragment stages
+// PBR Shader - Unified Format (Vulkan)
+// Uses UBOs and push constants for Vulkan SPIR-V
 //====================================================================
 
 #pragma shader_type(graphics)
@@ -14,27 +14,26 @@
 const float PI = 3.14159265359;
 
 struct PointLight {
-    vec4 positionIntensity;  // xyz = position, w = intensity
-    vec4 colorRadius;        // rgb = color, a = radius
+    vec4 positionIntensity;
+    vec4 colorRadius;
 };
 
 struct SceneData {
     mat4 view;
     mat4 proj;
-    vec4 lightDir;           // xyz = direction, w = intensity
-    vec4 lightColor;         // rgb = color
-    vec4 viewPos;            // xyz = camera position
+    vec4 lightDir;
+    vec4 lightColor;
+    vec4 viewPos;
     PointLight pointLights[MAX_POINT_LIGHTS];
     int numPointLights;
     int _pad[3];
 };
 
 struct MaterialData {
-    vec4 colorMetallic;      // rgb = albedo, a = metallic
-    vec4 props;              // r = roughness, g = ao, b = emissionStrength, a = flags
+    vec4 colorMetallic;
+    vec4 props;
 };
 
-// Material flags
 const uint FLAG_HAS_DIFFUSE   = 1u;
 const uint FLAG_HAS_NORMAL    = 2u;
 const uint FLAG_HAS_METALLIC  = 4u;
@@ -47,7 +46,6 @@ bool hasFlag(uint flags, uint flag) {
     return (flags & flag) != 0u;
 }
 
-// PBR Functions
 vec3 fresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
@@ -100,7 +98,7 @@ vec3 CalcPBRLight(vec3 L, vec3 V, vec3 N, vec3 F0, vec3 albedo, float metallic, 
 #pragma end(common)
 
 //--------------------------------------------------------------------
-// RESOURCES - Uniforms and samplers (API-agnostic bindings)
+// RESOURCES - UBO-based uniforms for Vulkan
 //--------------------------------------------------------------------
 #pragma begin(resources)
 
@@ -162,14 +160,12 @@ layout(location = 0) out vec4 outColor;
 void main() {
     uint flags = uint(pc.material.props.a);
     
-    // Material properties
     vec3 albedo = pc.material.colorMetallic.rgb;
     float metallic = pc.material.colorMetallic.a;
     float roughness = pc.material.props.r;
     float ao = pc.material.props.g;
     float emissionStrength = pc.material.props.b;
     
-    // Sample textures if available
     if (hasFlag(flags, FLAG_HAS_DIFFUSE)) {
         vec4 texColor = texture(texDiffuse, fragTexCoord);
         albedo = pow(texColor.rgb, vec3(2.2));
@@ -186,7 +182,6 @@ void main() {
     
     roughness = clamp(roughness, 0.04, 1.0);
     
-    // Normals
     vec3 N = normalize(fragNormal);
     vec3 V = normalize(ubo.scene.viewPos.xyz - fragPos);
     
@@ -197,10 +192,8 @@ void main() {
     }
     NdotV = max(NdotV, 0.0001);
     
-    // Fresnel F0
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     
-    // Direct lighting
     vec3 Lo = vec3(0.0);
     
     // Directional light
@@ -227,23 +220,17 @@ void main() {
         Lo += CalcPBRLight(Li, V, N, F0, albedo, metallic, roughness, pointRadiance);
     }
     
-    // Ambient
     vec3 ambient = vec3(0.03) * albedo * ao;
     
-    // Emission
     vec3 emission = vec3(0.0);
     if (hasFlag(flags, FLAG_HAS_EMISSION)) {
         emission = pow(texture(texEmission, fragTexCoord).rgb, vec3(2.2));
         emission *= emissionStrength;
     }
     
-    // Final composition
     vec3 color = ambient + Lo + emission;
     
-    // Tone mapping (Reinhard)
     color = color / (color + vec3(1.0));
-    
-    // Gamma correction
     color = pow(color, vec3(1.0 / 2.2));
     
     outColor = vec4(color, 1.0);
