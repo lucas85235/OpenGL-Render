@@ -15,12 +15,19 @@ private:
   std::string title;
   bool hasGLContext = false;
 
-  // Callback para notificar a Application sobre resize
-  std::function<void(int, int)> resizeCallback;
+  // Mouse state
+  double lastMouseX = 0.0;
+  double lastMouseY = 0.0;
+  double mouseX = 0.0;
+  double mouseY = 0.0;
+  bool firstMouse = true;
 
-  // Função estática para o GLFW chamar
+  // Callbacks
+  std::function<void(int, int)> resizeCallback;
+  std::function<void(double, double)> mouseMoveCallback;
+  std::function<void(double)> scrollCallback;
+
   static void FramebufferSizeCallback(GLFWwindow *window, int w, int h) {
-    // Recupera o ponteiro da nossa classe Window
     Window *win = static_cast<Window *>(glfwGetWindowUserPointer(window));
     if (win) {
       if (win->hasGLContext) {
@@ -28,9 +35,38 @@ private:
       }
       win->width = w;
       win->height = h;
-      // Chama a função da Application se existir
       if (win->resizeCallback)
         win->resizeCallback(w, h);
+    }
+  }
+
+  static void MouseCallback(GLFWwindow *window, double xpos, double ypos) {
+    Window *win = static_cast<Window *>(glfwGetWindowUserPointer(window));
+    if (win) {
+      if (win->firstMouse) {
+        win->lastMouseX = xpos;
+        win->lastMouseY = ypos;
+        win->firstMouse = false;
+      }
+      win->mouseX = xpos;
+      win->mouseY = ypos;
+
+      double xOffset = xpos - win->lastMouseX;
+      double yOffset = win->lastMouseY - ypos; // Inverted: y goes bottom to top
+
+      win->lastMouseX = xpos;
+      win->lastMouseY = ypos;
+
+      if (win->mouseMoveCallback)
+        win->mouseMoveCallback(xOffset, yOffset);
+    }
+  }
+
+  static void ScrollCallback(GLFWwindow *window, double xoffset,
+                             double yoffset) {
+    Window *win = static_cast<Window *>(glfwGetWindowUserPointer(window));
+    if (win && win->scrollCallback) {
+      win->scrollCallback(yoffset);
     }
   }
 
@@ -69,6 +105,8 @@ public:
     // Ponteiro para "this" para usar nos callbacks
     glfwSetWindowUserPointer(handle, this);
     glfwSetFramebufferSizeCallback(handle, FramebufferSizeCallback);
+    glfwSetCursorPosCallback(handle, MouseCallback);
+    glfwSetScrollCallback(handle, ScrollCallback);
 
     if (createGLContext) {
       glfwMakeContextCurrent(handle);
@@ -96,6 +134,36 @@ public:
 
   void SetResizeCallback(const std::function<void(int, int)> &callback) {
     resizeCallback = callback;
+  }
+
+  void
+  SetMouseMoveCallback(const std::function<void(double, double)> &callback) {
+    mouseMoveCallback = callback;
+  }
+
+  void SetScrollCallback(const std::function<void(double)> &callback) {
+    scrollCallback = callback;
+  }
+
+  void SetCursorMode(bool captured) {
+    glfwSetInputMode(handle, GLFW_CURSOR,
+                     captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    if (!captured) {
+      firstMouse = true; // Reset on release
+    }
+  }
+
+  bool IsCursorCaptured() const {
+    return glfwGetInputMode(handle, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
+  }
+
+  void GetMousePosition(double &x, double &y) const {
+    x = mouseX;
+    y = mouseY;
+  }
+
+  bool IsMouseButtonPressed(int button) const {
+    return glfwGetMouseButton(handle, button) == GLFW_PRESS;
   }
 
   // Input Helpers

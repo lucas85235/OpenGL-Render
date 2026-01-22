@@ -13,6 +13,7 @@
 #include "../renderer/render_graph/render_graph.hpp"
 #include "../renderer/render_graph/skybox_pass_node.hpp"
 #include "../scene/components.hpp"
+#include "camera.hpp"
 #include "vfs/native_file_system.hpp"
 #include "window.hpp"
 
@@ -38,7 +39,7 @@ private:
   std::vector<std::shared_ptr<Material>> materials;
 
   // Game State
-  glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
+  Camera camera{CameraMode::FPS};
 
   // Input Control
   bool mKeyPressed = false;
@@ -105,6 +106,17 @@ private:
     window->SetResizeCallback([this](int w, int h) {
       if (this->fb)
         this->fb->Resize(w, h);
+    });
+
+    window->SetMouseMoveCallback([this](double xOffset, double yOffset) {
+      if (window->IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+        camera.ProcessMouse(static_cast<float>(xOffset),
+                            static_cast<float>(yOffset));
+      }
+    });
+
+    window->SetScrollCallback([this](double yOffset) {
+      camera.ProcessScroll(static_cast<float>(yOffset));
     });
 
     // Load shaders
@@ -217,16 +229,29 @@ private:
     if (window->IsKeyPressed(GLFW_KEY_ESCAPE))
       window->Close();
 
-    float speed = 25.0f * dt;
+    // Camera movement (WASD + QE for up/down)
     if (window->IsKeyPressed(GLFW_KEY_W))
-      cameraPos.z -= speed;
+      camera.ProcessKeyboard(Camera::FORWARD, dt);
     if (window->IsKeyPressed(GLFW_KEY_S))
-      cameraPos.z += speed;
+      camera.ProcessKeyboard(Camera::BACKWARD, dt);
     if (window->IsKeyPressed(GLFW_KEY_A))
-      cameraPos.x -= speed;
+      camera.ProcessKeyboard(Camera::LEFT, dt);
     if (window->IsKeyPressed(GLFW_KEY_D))
-      cameraPos.x += speed;
+      camera.ProcessKeyboard(Camera::RIGHT, dt);
+    if (window->IsKeyPressed(GLFW_KEY_E))
+      camera.ProcessKeyboard(Camera::UP, dt);
+    if (window->IsKeyPressed(GLFW_KEY_Q))
+      camera.ProcessKeyboard(Camera::DOWN, dt);
 
+    // Toggle projection with P key
+    static bool pKeyPressed = false;
+    bool pPressed = window->IsKeyPressed(GLFW_KEY_P);
+    if (pPressed && !pKeyPressed) {
+      camera.ToggleProjection();
+    }
+    pKeyPressed = pPressed;
+
+    // Material switching with M key
     bool mPressed = window->IsKeyPressed(GLFW_KEY_M);
     if (mPressed && !mKeyPressed) {
       currentMatIndex = (currentMatIndex + 1) % materials.size();
@@ -253,15 +278,13 @@ private:
     auto rhiDevice = renderContext->GetDevice();
     rhiDevice->BeginFrame();
 
-    glm::mat4 view =
-        glm::lookAt(cameraPos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-    glm::mat4 proj = glm::perspective(glm::radians(45.0f), window->GetAspect(),
-                                      0.1f, 100.0f);
+    glm::mat4 view = camera.GetViewMatrix();
+    glm::mat4 proj = camera.GetProjectionMatrix(window->GetAspect());
 
     RenderPassData passData;
     passData.view = view;
     passData.projection = proj;
-    passData.cameraPos = cameraPos;
+    passData.cameraPos = camera.GetPosition();
     passData.windowWidth = window->GetWidth();
     passData.windowHeight = window->GetHeight();
 
