@@ -14,6 +14,7 @@
 #include "../renderer/render_graph/skybox_pass_node.hpp"
 #include "../scene/components.hpp"
 #include "camera.hpp"
+#include "debug_ui.hpp"
 #include "vfs/native_file_system.hpp"
 #include "window.hpp"
 
@@ -51,6 +52,9 @@ private:
   int frameCount = 0;
   float currentFPS = 0.0f;
 
+  // Debug UI
+  DebugUI debugUI;
+
 public:
   Application(const std::string &title, int width, int height) {
     window = std::make_unique<Window>(width, height, title);
@@ -65,14 +69,26 @@ public:
   }
 
   void Tick() {
+    debugUI.BeginFrame();
+
     float currentFrame = static_cast<float>(glfwGetTime());
     float deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
 
-    ProcessInput(deltaTime);
-    Update(deltaTime);
-    Render();
+    // Apply time scale from debug UI
+    float scaledDelta = deltaTime * debugUI.GetTimeScale();
 
+    ProcessInput(deltaTime); // Input always uses real time
+
+    debugUI.BeginUpdate();
+    Update(scaledDelta);
+    debugUI.EndUpdate();
+
+    debugUI.BeginRender();
+    Render();
+    debugUI.EndRender();
+
+    debugUI.EndFrame(deltaTime);
     window->OnUpdate();
   }
 
@@ -259,6 +275,25 @@ private:
         rend->SetMaterial(materials[currentMatIndex]);
     }
     mKeyPressed = mPressed;
+
+    // Debug UI controls
+    static bool f1Pressed = false;
+    bool f1 = window->IsKeyPressed(GLFW_KEY_F1);
+    if (f1 && !f1Pressed) {
+      debugUI.ToggleStats();
+      debugUI.PrintStats();
+    }
+    f1Pressed = f1;
+
+    static bool f2Pressed = false;
+    bool f2 = window->IsKeyPressed(GLFW_KEY_F2);
+    if (f2 && !f2Pressed) {
+      debugUI.TogglePause();
+      std::cout << "[Debug] Pause: "
+                << (debugUI.GetSettings().pauseUpdate ? "ON" : "OFF")
+                << std::endl;
+    }
+    f2Pressed = f2;
   }
 
   void Update(float dt) {

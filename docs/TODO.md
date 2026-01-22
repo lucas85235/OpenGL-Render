@@ -128,17 +128,24 @@ Implementar uma classe `Camera` com:
 
 ## 🎮 Projetos Práticos Completos
 
-### 16. **Mini Motor Gráfico**
+### 16. **Mini Motor Gráfico** ✅ IMPLEMENTADO
 ```
-MyEngine/
-├── Camera/
-├── Lighting/
-├── Materials/
-├── Meshes/
-├── PostProcessing/
-├── Scene/
-└── Shaders/
+src/
+├── core/
+│   ├── camera.hpp         ✅
+│   └── debug_ui.hpp       ✅
+├── renderer/
+│   ├── lighting.hpp       ✅
+│   ├── post_process.hpp   ✅
+│   ├── primitives.hpp     ✅
+│   └── shader_watcher.hpp ✅
+├── scene/
+│   └── scene_serializer.hpp ✅
+└── shaders/
+    └── post_process_opengl.shader ✅
 ```
+📖 **Documentação:** [ENGINE_MODULES.md](ENGINE_MODULES.md)
+
 **Dificuldade:** ⭐⭐⭐⭐⭐
 
 ### 17. **Visualizador de Modelos 3D**
