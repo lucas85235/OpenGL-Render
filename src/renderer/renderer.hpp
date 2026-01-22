@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../rhi/rhi_device.h"
+#include "lighting.hpp"
 #include "model.hpp"
 #include "render_command.hpp"
 #include "render_context.hpp"
@@ -21,18 +22,8 @@ struct SceneData {
   glm::vec3 lightColor;
 };
 
-struct DirectionalLight {
-  glm::vec3 direction = glm::vec3(-0.2f, -1.0f, -0.3f);
-  glm::vec3 color = glm::vec3(1.0f);
-  float intensity = 1.0f;
-};
-
-struct PointLightData {
-  glm::vec3 position;
-  glm::vec3 color;
-  float intensity;
-  float radius;
-};
+// Backward compatibility alias
+using PointLightData = PointLight;
 
 class Renderer {
 private:
