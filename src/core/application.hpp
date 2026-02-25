@@ -5,6 +5,10 @@
 #include <memory>
 #include <vector>
 
+#include "../editor/console_panel.hpp"
+#include "../editor/editor_ui.hpp"
+#include "../editor/example_panel.hpp"
+#include "../editor/viewport_panel.hpp"
 #include "../renderer/framebuffer.hpp"
 #include "../renderer/model_factory.hpp"
 #include "../renderer/pbr_utils.hpp"
@@ -14,7 +18,6 @@
 #include "../renderer/render_graph/skybox_pass_node.hpp"
 #include "../scene/components.hpp"
 #include "camera.hpp"
-#include "debug_ui.hpp"
 #include "vfs/native_file_system.hpp"
 #include "window.hpp"
 
@@ -28,7 +31,9 @@ private:
 
   // Core Systems
   Renderer renderer;
-  std::unique_ptr<FrameBuffer> fb;
+
+  // Scene framebuffer (3D content renders here, displayed in viewport panel)
+  std::unique_ptr<FrameBuffer> sceneFB;
 
   std::unique_ptr<RenderGraph> renderGraph;
 
@@ -47,18 +52,16 @@ private:
   int currentMatIndex = 0;
   std::shared_ptr<Entity> playerEntity;
 
-  // FPS Counter
-  float fpsTimer = 0.0f;
-  int frameCount = 0;
-  float currentFPS = 0.0f;
-
-  // Debug UI
-  DebugUI debugUI;
+  // Editor UI
+  EditorUI editorUI;
+  ViewportPanel *viewportPanel = nullptr;
 
 public:
   Application(const std::string &title, int width, int height) {
     window = std::make_unique<Window>(width, height, title);
   }
+
+  ~Application() { editorUI.Shutdown(); }
 
   bool Initialize() {
     if (!InitInternal())
@@ -69,26 +72,22 @@ public:
   }
 
   void Tick() {
-    debugUI.BeginFrame();
-
     float currentFrame = static_cast<float>(glfwGetTime());
     float deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
 
-    // Apply time scale from debug UI
-    float scaledDelta = deltaTime * debugUI.GetTimeScale();
+    ProcessInput(deltaTime);
+    Update(deltaTime);
 
-    ProcessInput(deltaTime); // Input always uses real time
+    // Render 3D scene into the scene framebuffer
+    RenderScene();
 
-    debugUI.BeginUpdate();
-    Update(scaledDelta);
-    debugUI.EndUpdate();
+    // Render editor UI (which displays the scene via ViewportPanel)
+    editorUI.BeginFrame();
+    editorUI.Update(deltaTime);
+    editorUI.Render();
+    editorUI.EndFrame();
 
-    debugUI.BeginRender();
-    Render();
-    debugUI.EndRender();
-
-    debugUI.EndFrame(deltaTime);
     window->OnUpdate();
   }
 
@@ -98,32 +97,39 @@ private:
   float lastFrame = 0.0f;
 
   bool InitInternal() {
-    // Choose API
     RHI::API api = RHI::API::OpenGL;
 
-    // OpenGL needs GL context, Vulkan needs GLFW_NO_API
     bool createGLContext = (api == RHI::API::OpenGL);
     if (!window->Init(createGLContext))
       return false;
 
-    // Initialize FileSystem
+    ConsolePanel::LogInfo("Window initialized (%dx%d)", window->GetWidth(),
+                          window->GetHeight());
+
     fileSystem = std::make_unique<NativeFileSystem>();
 
-    // Create Render Context
     renderContext =
         std::make_unique<RenderContext>(api, window->GetNativeWindow());
     if (!renderContext->Initialize(fileSystem.get())) {
-      std::cerr << "[App] Failed to initialize RenderContext!" << std::endl;
+      ConsolePanel::LogError("Failed to initialize RenderContext");
       return false;
     }
+    ConsolePanel::LogInfo("RenderContext initialized (API: %s)",
+                          api == RHI::API::OpenGL ? "OpenGL" : "Vulkan");
 
     auto rhiDevice = renderContext->GetDevice();
 
-    window->SetResizeCallback([this](int w, int h) {
-      if (this->fb)
-        this->fb->Resize(w, h);
-    });
+    // Create scene framebuffer
+    sceneFB = std::make_unique<FrameBuffer>(rhiDevice, window->GetWidth(),
+                                            window->GetHeight());
+    if (!sceneFB->Init()) {
+      ConsolePanel::LogError("Failed to create scene framebuffer");
+      return false;
+    }
+    ConsolePanel::LogInfo("Scene framebuffer created (%dx%d)",
+                          window->GetWidth(), window->GetHeight());
 
+    // Mouse: only process when right-clicking
     window->SetMouseMoveCallback([this](double xOffset, double yOffset) {
       if (window->IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT)) {
         camera.ProcessMouse(static_cast<float>(xOffset),
@@ -140,29 +146,20 @@ private:
     std::shared_ptr<Shader> pbrShaderLoaded;
 
     if (api == RHI::API::Vulkan) {
-      // Vulkan: Load pre-compiled SPIR-V from pbr_vulkan.shader
       pbrShaderLoaded = shaderMgr->LoadShader(
           "pbr", "shaders/pbr_vulkan.vert.spv", "shaders/pbr_vulkan.frag.spv");
     } else {
-      // OpenGL: Runtime compile from pbr_opengl.shader (plain uniforms)
       pbrShaderLoaded =
           shaderMgr->LoadUnifiedShader("pbr", "shaders/pbr_opengl.shader");
     }
 
     if (!pbrShaderLoaded) {
-      std::cerr << "[App] Failed to load PBR shader" << std::endl;
+      ConsolePanel::LogError("Failed to load PBR shader");
       return false;
     }
+    ConsolePanel::LogInfo("PBR shader loaded");
 
-    // Setup Renderer
     renderer.Init(renderContext.get(), pbrShaderLoaded.get());
-
-    // Setup Framebuffer (skip for Vulkan - has its own swapchain)
-    if (api == RHI::API::Vulkan) {
-      fb = std::make_unique<FrameBuffer>(rhiDevice, window->GetWidth(),
-                                         window->GetHeight());
-      fb->Init();
-    }
 
     // Setup Environment Map
     envMap.Initialize(rhiDevice, fileSystem.get());
@@ -171,13 +168,31 @@ private:
     renderGraph->AddPass(std::make_unique<SkyboxPassNode>(&envMap));
     renderGraph->AddPass(std::make_unique<PBRPassNode>(&renderer));
 
+    // Initialize Editor UI
+    if (!editorUI.Init(window->GetNativeWindow())) {
+      ConsolePanel::LogError("Failed to initialize EditorUI");
+      return false;
+    }
+
+    // Register panels
+    viewportPanel = editorUI.AddPanel<ViewportPanel>();
+    viewportPanel->SetFrameBuffer(sceneFB.get());
+    viewportPanel->SetResizeCallback([this](int w, int h) {
+      ConsolePanel::LogInfo("Viewport resized to %dx%d", w, h);
+    });
+
+    editorUI.AddPanel<ConsolePanel>();
+    editorUI.AddPanel<ExamplePanel>();
+
+    ConsolePanel::LogInfo("Editor UI initialized with %d panels", 3);
+    ConsolePanel::LogInfo("Engine ready");
+
     return true;
   }
 
   void LoadContent() {
     activeScene = std::make_unique<Scene>();
 
-    // Materials
     auto gold = std::make_shared<Material>(MaterialLibrary::CreateGold());
     auto silver = std::make_shared<Material>(MaterialLibrary::CreateSilver());
     auto plastic = std::make_shared<Material>(MaterialLibrary::CreatePlastic());
@@ -186,27 +201,26 @@ private:
 
     materials = {gold, silver, plastic, rubber, copper};
 
-    // Load Model
     playerEntity = activeScene->CreateEntity("Helmet");
     try {
       auto model = std::make_shared<Model>(
           renderContext->GetDevice(), renderContext->GetTextureManager(),
           "models/DamagedHelmet/DamagedHelmet.glb");
-      // "models/car/Intergalactic_Spaceship-(Wavefront).obj");
       if (model->GetMeshCount() > 0)
         materials.push_back(model->GetMesh(0).GetMaterial());
 
       auto renderComp = playerEntity->AddComponent<MeshRenderer>(model);
       renderComp->SetMaterial(materials[5]);
+      ConsolePanel::LogInfo("Model loaded: DamagedHelmet (%zu meshes)",
+                            model->GetMeshCount());
     } catch (...) {
-      std::cerr << "[App] Error loading model" << std::endl;
+      ConsolePanel::LogError("Failed to load model");
     }
 
     playerEntity->AddComponent<RotatorScript>(glm::vec3(0, 30, 0));
     playerEntity->transform.Position = glm::vec3(0, 0.5f, 0);
     playerEntity->transform.Rotation = glm::vec3(0, 0, 0);
 
-    // Floor
     auto floor = activeScene->CreateEntity("Floor");
     auto floorMesh = std::make_shared<Mesh>(
         ModelFactory::CreatePlane(renderContext->GetDevice(), 1.0f));
@@ -215,14 +229,13 @@ private:
     floor->transform.Scale = glm::vec3(10.0f);
     floor->transform.Position = glm::vec3(0, -1.0f, 0);
 
-    // IBL
     envMap.LoadFromHDR("models/golden_gate_hills_4k.hdr");
     if (envMap.IsValid()) {
       renderer.SetIBLMaps(envMap.GetIrradianceMap(), envMap.GetPrefilterMap(),
                           envMap.GetBrdfLUT());
+      ConsolePanel::LogInfo("IBL environment loaded");
     }
 
-    // Lights
     auto sun = activeScene->CreateEntity("Sun");
     sun->AddComponent<DirectionalLightComponent>(glm::vec3(1.0f, 0.9f, 0.8f),
                                                  2.0f);
@@ -239,13 +252,14 @@ private:
     blueLight->AddComponent<FloaterScript>(1.0f, 2.0f);
 
     activeScene->OnStart();
+    ConsolePanel::LogInfo("Scene loaded (%zu entities)",
+                          activeScene->GetEntityCount());
   }
 
   void ProcessInput(float dt) {
     if (window->IsKeyPressed(GLFW_KEY_ESCAPE))
       window->Close();
 
-    // Camera movement (WASD + QE for up/down)
     if (window->IsKeyPressed(GLFW_KEY_W))
       camera.ProcessKeyboard(Camera::FORWARD, dt);
     if (window->IsKeyPressed(GLFW_KEY_S))
@@ -259,7 +273,6 @@ private:
     if (window->IsKeyPressed(GLFW_KEY_Q))
       camera.ProcessKeyboard(Camera::DOWN, dt);
 
-    // Toggle projection with P key
     static bool pKeyPressed = false;
     bool pPressed = window->IsKeyPressed(GLFW_KEY_P);
     if (pPressed && !pKeyPressed) {
@@ -267,7 +280,6 @@ private:
     }
     pKeyPressed = pPressed;
 
-    // Material switching with M key
     bool mPressed = window->IsKeyPressed(GLFW_KEY_M);
     if (mPressed && !mKeyPressed) {
       currentMatIndex = (currentMatIndex + 1) % materials.size();
@@ -275,55 +287,51 @@ private:
         rend->SetMaterial(materials[currentMatIndex]);
     }
     mKeyPressed = mPressed;
-
-    // Debug UI controls
-    static bool f1Pressed = false;
-    bool f1 = window->IsKeyPressed(GLFW_KEY_F1);
-    if (f1 && !f1Pressed) {
-      debugUI.ToggleStats();
-      debugUI.PrintStats();
-    }
-    f1Pressed = f1;
-
-    static bool f2Pressed = false;
-    bool f2 = window->IsKeyPressed(GLFW_KEY_F2);
-    if (f2 && !f2Pressed) {
-      debugUI.TogglePause();
-      std::cout << "[Debug] Pause: "
-                << (debugUI.GetSettings().pauseUpdate ? "ON" : "OFF")
-                << std::endl;
-    }
-    f2Pressed = f2;
   }
 
   void Update(float dt) {
     if (activeScene)
       activeScene->OnUpdate(dt);
-
-    frameCount++;
-    fpsTimer += dt;
-    if (fpsTimer >= 1.0f) {
-      currentFPS = static_cast<float>(frameCount) / fpsTimer;
-      frameCount = 0;
-      fpsTimer = 0.0f;
-    }
   }
 
-  void Render() {
+  void RenderScene() {
     auto rhiDevice = renderContext->GetDevice();
     rhiDevice->BeginFrame();
 
-    glm::mat4 view = camera.GetViewMatrix();
-    glm::mat4 proj = camera.GetProjectionMatrix(window->GetAspect());
+    // Render to scene framebuffer
+    if (sceneFB && sceneFB->IsInitialized()) {
+      sceneFB->Bind();
 
-    RenderPassData passData;
-    passData.view = view;
-    passData.projection = proj;
-    passData.cameraPos = camera.GetPosition();
-    passData.windowWidth = window->GetWidth();
-    passData.windowHeight = window->GetHeight();
+      float vpAspect = 1.0f;
+      if (viewportPanel && viewportPanel->GetViewportHeight() > 0) {
+        vpAspect = static_cast<float>(viewportPanel->GetViewportWidth()) /
+                   static_cast<float>(viewportPanel->GetViewportHeight());
+      } else {
+        vpAspect = window->GetAspect();
+      }
 
-    renderGraph->Execute(passData, activeScene.get());
+      glm::mat4 view = camera.GetViewMatrix();
+      glm::mat4 proj = camera.GetProjectionMatrix(vpAspect);
+
+      RenderPassData passData;
+      passData.view = view;
+      passData.projection = proj;
+      passData.cameraPos = camera.GetPosition();
+      passData.windowWidth = sceneFB->GetWidth();
+      passData.windowHeight = sceneFB->GetHeight();
+
+      renderGraph->Execute(passData, activeScene.get());
+
+      sceneFB->Unbind();
+    }
+
+    // Restore default framebuffer viewport to full window
+    RHI::Viewport vp;
+    vp.x = 0;
+    vp.y = 0;
+    vp.width = window->GetWidth();
+    vp.height = window->GetHeight();
+    rhiDevice->SetViewport(vp);
 
     rhiDevice->EndFrame();
   }

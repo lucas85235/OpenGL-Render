@@ -146,12 +146,18 @@ file(COPY ${CMAKE_SOURCE_DIR}/src/shaders DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${CMAKE_SOURCE_DIR}/models DESTINATION ${CMAKE_BINARY_DIR})
 
 # ==========================================
+# Dear ImGui (docking branch)
+# ==========================================
+set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/src/vendor/imgui")
+file(GLOB IMGUI_SOURCES "${IMGUI_DIR}/*.cpp")
+
+# ==========================================
 # Definição do Executável
 # ==========================================
 # Adiciona todos os arquivos .cpp e .hpp para aparecerem na IDE
 file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.hpp" "main.cpp")
 
-add_executable(${EXECUTABLE_NAME} ${SOURCES})
+add_executable(${EXECUTABLE_NAME} ${SOURCES} ${IMGUI_SOURCES})
 
 # ==========================================
 # Includes e Links
@@ -159,10 +165,14 @@ add_executable(${EXECUTABLE_NAME} ${SOURCES})
 # Permite incluir arquivos como "src/core/..." a partir da raiz
 target_include_directories(${EXECUTABLE_NAME} PRIVATE 
     ${CMAKE_SOURCE_DIR}
+    ${IMGUI_DIR}
     ${GLEW_INCLUDE_DIRS}
     ${GLM_INCLUDE_DIRS}
     ${ASSIMP_INCLUDE_DIRS}
 )
+
+# ImGui uses GLEW as OpenGL loader
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLEW)
 
 # Linkagem das bibliotecas (-lGL -lGLEW -lglfw -lassimp ...)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE
