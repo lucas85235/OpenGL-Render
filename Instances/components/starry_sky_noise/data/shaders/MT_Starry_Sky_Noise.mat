@@ -1,0 +1,61 @@
+material
+{
+    name : "BasicMaterial",
+    parameters :
+    [
+        // Star Texture Parameters
+        { type : sampler2d,name : StarTex},      // Star Texture
+        { type : float, name    : StarTexWidth}, // It's possible adjust the width, case the model causing distorctions in Width.
+        { type : float, name    : StarTexHeight},// It's possible adjust the Height, case the model causing distorctions in Height.
+        { type : float, name    : StarTexScale}, // Scale increase or decrease a quanitity of the texture is repeated, this causes a some side effects:
+                                                    // if increase >1, the number of times the texture will repeat will increase, causing increasing quantity and decreasing size)
+                                                    // if decrease <1, the texture will split, decreasing the quantity and increasing the size of the content)
+        // Noise Texture Parameters
+        { type : sampler2d,name : NoiseTex},
+        { type : float, name    : NoiseTexWidth},
+        { type : float, name    : NoiseTexHeight},
+        { type : float, name    : NoiseTexScale},
+
+        // Movement Noise Parameter
+        { type : float, name    : NoiseSpeed}, // Noise Texture speed
+
+        // Alpha
+        { type : float, name    : StarTexAlpha}, // Intensity Star Alpha
+        { type : float, name    : NoiseTexAlpha} // Intensity Mask Alpha
+
+    ],
+    requires : [
+        uv0,
+        color
+    ],
+    quality : high,
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false
+}
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        highp float deltaTime = getUserTime().x;
+        highp vec2 uv = getUV0();
+        highp vec2 movementNoise = vec2(deltaTime * materialParams.NoiseSpeed);
+
+        //star texture
+        highp vec4 starry_tex = texture(materialParams_StarTex, materialParams.StarTexScale * vec2(getUV0().x * materialParams.StarTexHeight, getUV0().y * materialParams.StarTexWidth));
+
+        //noise texture 1
+        highp vec4 starry_tex_noise1 = texture(materialParams_NoiseTex, vec2(uv.x * materialParams.NoiseTexHeight, uv.y * materialParams.NoiseTexWidth) * materialParams.NoiseTexScale
+        + vec2(movementNoise.x, 0.0));
+
+        //noise texture 2
+        highp vec4 starry_tex_noise2 = texture(materialParams_NoiseTex, -vec2(uv.x * materialParams.NoiseTexHeight, uv.y * materialParams.NoiseTexWidth) * materialParams.NoiseTexScale
+        + vec2(0.0, -movementNoise.y));
+
+        //Noise texture movements over the star texture
+        material.baseColor = vec4(starry_tex.rgb * materialParams.StarTexAlpha, 0.0) - (vec4(starry_tex_noise1.rgb * materialParams.NoiseTexAlpha, 1.0) + vec4(starry_tex_noise2.rgb * materialParams.NoiseTexAlpha, 1.0));
+    }
+}

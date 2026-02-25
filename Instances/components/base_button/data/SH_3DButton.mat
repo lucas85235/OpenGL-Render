@@ -1,0 +1,31 @@
+material
+{
+    name : "MT_3DButton",
+    parameters :
+    [
+        {
+            type : float3,
+            name : BaseColor,
+        },
+        {
+            type : float,
+            name : Alpha,
+        }
+    ],
+    requires :
+    [
+        uv0
+    ],
+    blending : transparent,
+    shadingModel : unlit,
+}
+
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        material.baseColor = vec4(
+            inverseTonemapSRGB(materialParams.BaseColor.rgb) * materialParams.Alpha, materialParams.Alpha);
+    }
+}

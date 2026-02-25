@@ -1,0 +1,29 @@
+material {
+    name : "BoundsShader",
+    parameters : [
+        {
+            type : float3,
+            name : BaseColor,
+        },
+        {
+            type : float,
+            name : Alpha,
+        }
+    ],
+    // culling : none,
+    depthWrite : true,
+    blending : transparent,
+    // transparency : twoPassesOneSide,
+    shadingModel : lit,
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        // Assume alpha is not pre-multiplied into RGB. This is necessary to
+        // correctly apply inverse tonemapping to the input sRGB texture values.
+        material.baseColor = vec4(
+            inverseTonemapSRGB(materialParams.BaseColor.rgb) * materialParams.Alpha, materialParams.Alpha);
+    }
+}

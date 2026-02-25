@@ -1,0 +1,29 @@
+material
+{
+    name : "IconButton",
+    parameters :
+    [
+        {
+            type : sampler2d,
+            name : BaseColor,
+        }
+    ],
+    requires :
+    [
+        uv0
+    ],
+    culling : none,
+    depthWrite : true,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false,
+}
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        vec4 srgb_color = texture(materialParams_BaseColor, getUV0());
+        material.baseColor = vec4(inverseTonemapSRGB(srgb_color.rgb) * srgb_color.a, srgb_color.a);
+    }
+}

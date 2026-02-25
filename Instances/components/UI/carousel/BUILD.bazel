@@ -1,0 +1,62 @@
+load("@com_google_impress//build_tools:assets.bzl", "imp_assets")
+load("@com_google_impress//build_tools:imp.bzl", "if_android", "if_desktop", "imp_google3_copts")
+load("@com_google_impress//build_tools:imp_material.bzl", "imp_material")
+
+package(
+    default_applicable_licenses = [],
+    default_visibility = [
+        "//visibility:public",
+    ],
+    features = [
+        "-use_header_modules",  # Incompatible with -std=c++14.
+    ],
+)
+
+imp_material(
+    name = "debug_material",
+    src = "debug_material.mat",
+    includes = [
+        "alpha_mask.glsl",
+    ],
+)
+
+filegroup(
+    name = "carousel_utils",
+    srcs = glob(["*"]),
+)
+
+imp_assets(
+    name = "carousel_assets",
+    srcs = [
+        ":alpha_mask.glsl",
+        ":debug_material",
+    ],
+    namespace = "ix::samsung::homecomponents::assets",
+)
+
+cc_library(
+    name = "carousel",
+    srcs = [
+        "carousel.cc",
+    ],
+    hdrs = [
+        "carousel.h",
+    ],
+    copts = imp_google3_copts(),
+    deps = [
+        "carousel_assets",
+        "//native/components/interaction",
+        "@com_google_absl//absl/status",
+        "@com_google_impress//:api",
+        "@com_google_impress//core/input",
+    ] + if_android([
+        "@com_google_impress//core/view/platforms/xr_android:xr",
+        "@com_google_impress//core/view/platforms/xr_android:xr_jni",
+        "@com_google_impress//core/actions:action_config",
+        "@com_google_impress//core/actions:controller_events",
+        "@com_google_impress//core/actions:controller_input_handler",
+        "@com_google_impress//core/actions:input_action_event",
+        "@com_google_impress//core/xr:openxr_events",
+        "@com_google_impress//core/view/platforms/xr_android:xr_action_controller",
+    ]),
+)

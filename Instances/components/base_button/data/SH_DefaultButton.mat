@@ -1,0 +1,107 @@
+material
+{
+    name : "MT_DefaultButton",
+    parameters :
+    [
+        {
+            type : {SAMPLER_EXTERNAL},
+            name : BaseColor,
+        },
+        {
+            type : float3,
+            name : FillColor,
+        },
+        {
+            type : float3,
+            name : BorderColor,
+        },
+        {
+            type : float2,
+            name : Dimensions,
+        },
+        {
+            type : float,
+            name : Radius,
+        }
+
+    ],
+    requires :
+    [
+        uv0
+    ],
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+}
+fragment
+{
+    float4 MakeRoundedBounds(float2 coords, float2 dimensions, float radius)
+    {
+        float2 circle_center = float2(radius, radius);
+
+        // Left - Top
+        bool leftTop = coords.x < circle_center.x && coords.y < circle_center.y;
+        if(length(coords - circle_center) < radius && (length(coords - circle_center) + 0.01f) > radius && leftTop)
+            return float4(materialParams.BorderColor, 1.0f);
+        else if(length(coords - circle_center) > radius && leftTop)
+            return float4(0, 0, 0, 0);
+        
+        // Right - Top
+        circle_center.x += dimensions.x - 2.0f * radius;
+        if(length(coords - circle_center) < radius && (length(coords - circle_center) + 0.01f) > radius && coords.x > circle_center.x && coords.y < circle_center.y)
+            return float4(materialParams.BorderColor, 1.0f);
+        else if(length(coords - circle_center) > radius && coords.x > circle_center.x && coords.y < circle_center.y)
+            return float4(0, 0, 0, 0);
+
+        // Right - Botton
+        circle_center.y += dimensions.y - 2.0f * radius;
+        if(length(coords - circle_center) < radius && (length(coords - circle_center) + 0.01f) > radius && coords.x > circle_center.x && coords.y > circle_center.y)
+            return float4(materialParams.BorderColor, 1.0f);
+        if(length(coords - circle_center) > radius && coords.x > circle_center.x && coords.y > circle_center.y)
+            return float4(0, 0, 0, 0);
+        
+        // Left - Botton
+        circle_center.x -= dimensions.x - 2.0f * radius;
+        if(length(coords - circle_center) < radius && (length(coords - circle_center) + 0.01f) > radius && coords.x < circle_center.x && coords.y > circle_center.y)
+            return float4(materialParams.BorderColor, 1.0f);
+        if(length(coords - circle_center) > radius && coords.x < circle_center.x && coords.y > circle_center.y)
+            return float4(0, 0, 0, 0);
+
+        // Quad bounds
+        float r = 0.01f;
+        if(getUV0().y <= r)
+        {
+            return float4(materialParams.BorderColor, 1.0f);
+        }
+        if(getUV0().y >= (1.0f - r))
+        {
+            return float4(materialParams.BorderColor, 1.0f);
+        }
+        if(getUV0().x <= r)
+        {
+            return float4(materialParams.BorderColor, 1.0f);
+        }
+        if(getUV0().x >= (1.0f - r))
+        {
+            return float4(materialParams.BorderColor, 1.0f);
+        }
+
+        return float4(materialParams.FillColor, 1.0f);    
+    }
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+
+        float2 coords = getUV0();// * materialParams.Dimensions;
+        material.baseColor = MakeRoundedBounds(coords, materialParams.Dimensions, materialParams.Radius);
+
+        /*vec2 uv = getUV0();
+        if (!gl_FrontFacing) {
+           uv.x = 1.0 - uv.x;
+        }
+
+        material.baseColor = float4(materialParams.FillColor, 1.0f);*/
+    }
+}

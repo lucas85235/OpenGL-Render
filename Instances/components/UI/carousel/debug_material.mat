@@ -1,0 +1,55 @@
+material
+{
+    name : "IconButton",
+    parameters :
+    [
+        {
+            type : float4,
+            name : BaseColor,
+        },
+        {
+            type : float3,
+            name : Origin,
+        }
+    ],
+    variables : [
+        world_position
+    ],
+    requires :
+    [
+        uv0,
+        position
+    ],
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false
+}
+
+vertex
+{
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        material.world_position = getPosition();
+        material.world_position = mulMat4x4Float3(getWorldFromModelMatrix(), material.world_position.xyz);
+    }
+}
+
+fragment
+{
+    #include "alpha_mask.glsl"
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        vec3 limit = vec3(0.4, 10.0, 0.5);
+        float3 wpos = getUserWorldPosition() + vec3(0.0,0.0,-0.6) + materialParams.Origin;
+        float alpha = GetAlphaOnDistance(wpos, limit,0.2).x *
+                      GetAlphaOnDistance(wpos, limit,0.0).y *
+                      GetAlphaOnDistance(wpos, limit,0.0).z;
+
+
+        material.baseColor = vec4(inverseTonemapSRGB(materialParams.BaseColor.rgb) * alpha, alpha);
+    }
+}

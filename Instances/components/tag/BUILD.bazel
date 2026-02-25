@@ -1,0 +1,25 @@
+load("@com_google_impress//build_tools:imp.bzl",  "if_desktop", "imp_google3_copts", "if_android")
+
+package(
+    default_applicable_licenses = [],
+    default_visibility = [
+        "//visibility:public",
+    ],
+    features = [
+        "-use_header_modules",  # Incompatible with -std=c++14.
+    ],
+)
+
+cc_library(
+    name = "tag",
+    srcs = [
+        "tag.cc",
+    ],
+    hdrs = [
+        "tag.h",
+    ],
+    copts = imp_google3_copts(),
+    deps = [
+        "@com_google_impress//:api",
+    ],
+)

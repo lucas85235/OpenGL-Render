@@ -1,0 +1,28 @@
+material {
+    parameters :
+    [
+        { type : sampler2d, name: BaseTexture },
+        { type : float4, name: Color }
+    ],
+    requires :
+    [
+        uv0
+    ],
+    name : "MT_Fireworks",
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite: false,
+}
+
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        
+        vec4 base_color = texture(materialParams_BaseTexture, getUV0());
+        base_color.rgb *= materialParams.Color.rgb;
+        base_color.a = base_color.a * materialParams.Color.a;
+        material.baseColor = vec4(base_color.rgb * base_color.a, base_color.a);
+    }
+}

@@ -1,0 +1,30 @@
+material {
+    name : "Surface",
+
+    culling : back,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : true,
+
+    parameters :
+    [
+        {
+            type : float3,
+            name : SurfaceColor,
+        },
+        {
+            type : float,
+            name : Alpha,
+        }
+    ],
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor = float4(materialParams.SurfaceColor,materialParams.Alpha);
+    }
+}
+
+

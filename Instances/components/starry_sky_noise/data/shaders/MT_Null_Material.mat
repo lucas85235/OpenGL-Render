@@ -1,0 +1,26 @@
+material
+{
+    name : "BasicMaterial",
+    parameters :
+    [
+
+    ],
+    requires : [
+        uv0,
+        color
+    ],
+    quality : high,
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false
+}
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        material.baseColor = vec4(0.0,0.0,0.0,0.0);
+    }
+}

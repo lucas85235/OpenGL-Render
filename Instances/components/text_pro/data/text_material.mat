@@ -1,0 +1,34 @@
+material {
+    name : "BasicMaterial",
+    parameters : [
+        { type : sampler2d, name : BaseColor,},
+        { type : sampler2d, name : TextValueMapping,},
+        { type : int, name : AtlasSize,},
+        { type : float, name : FontSize,},
+        { type : int, name : StringLength,},
+        { type : float, name : MaxSoftEdge,},
+        { type : float, name : MinSoftEdge,}
+
+    ],
+    requires : [
+        uv0
+    ],
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : true,
+}
+fragment {
+#include "textShader.glsl"
+#include "effectShader.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        vec2 uv = getUV0();
+        Output = vec4(0.0);
+        vec4 srgb_color = setMappingValue(materialParams.MaxSoftEdge, materialParams.MinSoftEdge, materialParams_TextValueMapping, materialParams.AtlasSize,uv, materialParams_BaseColor, materialParams.FontSize, materialParams.StringLength);
+        srgb_color *= vec4(getEffectColor(uv, getUserTime().x).xyz,1.0);
+        material.baseColor = vec4(srgb_color);
+    }
+}

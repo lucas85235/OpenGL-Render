@@ -1,0 +1,28 @@
+material {
+    name : "BasicMaterial",
+    parameters : [
+        {
+            type : float3,
+            name : BaseColor,
+        },
+        {
+            type : float,
+            name : Alpha,
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false,
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        vec3 srgb_color = materialParams.BaseColor;
+        material.baseColor = vec4(0,0,0,materialParams.Alpha);
+    }
+}

@@ -1,0 +1,30 @@
+load("@com_google_impress//build_tools:assets.bzl", "imp_assets")
+load("@com_google_impress//build_tools:imp.bzl", "if_android", "if_desktop", "imp_default_jni_linkopts", "imp_google3_copts")
+
+package(
+    default_applicable_licenses = [],
+    default_visibility = [
+        "//visibility:public",
+    ],
+    features = [
+        "-use_header_modules",  # Incompatible with -std=c++14.
+    ],
+)
+
+licenses(["unencumbered"])
+
+cc_library(
+    name = "hand_debug",
+    srcs = [
+        "hand_debug.cc",
+    ],
+    hdrs = [
+        "hand_debug.h",
+    ],
+    copts = imp_google3_copts(),
+    deps = [
+        "@com_google_impress//:api",
+        "@com_google_impress//core/actions:controller_events",
+        "@com_google_impress//core/view/platforms/xr_android:xr_action_controller",
+    ],
+)

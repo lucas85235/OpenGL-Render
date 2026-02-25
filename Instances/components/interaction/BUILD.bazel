@@ -1,0 +1,56 @@
+load("@com_google_impress//build_tools:imp.bzl",  "if_desktop", "imp_default_jni_linkopts", "imp_google3_copts", "if_android")
+load("@com_google_impress//build_tools:assets.bzl", "imp_assets")
+
+package(
+    default_applicable_licenses = [],
+    default_visibility = [
+        "//visibility:public",
+    ],
+    features = [
+        "-use_header_modules",  # Incompatible with -std=c++14.
+    ],
+)
+
+cc_library(
+    name = "interaction",
+    srcs = [
+        "interaction.cc",
+        "interaction_platforms/desktop/interactor_desktop.cpp",
+        "interactor_factory.cc",
+        "interactable.cc"
+    ]+ if_android([
+        "interaction_platforms/android/interactor_android.cpp",
+        "interaction_platforms/xr/interactor_xr.cpp",
+    ]),
+    hdrs = [
+        "interactor.h",
+        "interaction.h",
+        "interaction_platforms/desktop/interactor_desktop.h",
+        "interactor_factory.h",
+        "interactable.h"
+    ] + if_android([
+        "interaction_platforms/xr/interactor_xr.h",
+        "interaction_platforms/android/interactor_android.h",
+    ]),
+    copts = imp_google3_copts(),
+    deps = [
+        "@com_google_impress//:api",
+        "//native/data:home_components_assets",
+        "//proto/components:interaction_state_proto_cc",
+        "//native/home_components_utils/common:HomeComponentsUtils",
+        "@com_google_impress//core/math:math_proto_cc",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_impress//core/scripting",
+        "@com_google_impress//core/line_renderer:line_renderer",
+        "@com_google_impress//core/actions:action_config",
+        "@com_google_impress//core/scripting:basic_api",
+
+    ] + if_android([
+        "@com_google_impress//core/view/platforms/xr_android:xr",
+        "@com_google_impress//core/view/platforms/xr_android:xr_jni",
+        "@com_google_impress//core/view/platforms/xr_android:xr_action_controller",
+    ]),
+)
