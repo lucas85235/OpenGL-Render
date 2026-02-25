@@ -87,6 +87,12 @@ public:
   int GetHeight() const { return height; }
   bool IsInitialized() const { return initialized; }
 
+  uint64_t GetNativeTextureID() const {
+    if (!device || !initialized)
+      return 0;
+    return device->GetNativeTextureID(colorTexture);
+  }
+
   void Cleanup() {
     if (!initialized || !device)
       return;

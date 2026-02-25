@@ -79,6 +79,10 @@ public:
     ProcessInput(deltaTime);
     Update(deltaTime);
 
+    auto rhiDevice = renderContext->GetDevice();
+    if (!rhiDevice->BeginFrame())
+      return;
+
     // Render 3D scene into the scene framebuffer
     RenderScene();
 
@@ -88,6 +92,7 @@ public:
     editorUI.Render();
     editorUI.EndFrame();
 
+    rhiDevice->EndFrame();
     window->OnUpdate();
   }
 
@@ -169,7 +174,7 @@ private:
     renderGraph->AddPass(std::make_unique<PBRPassNode>(&renderer));
 
     // Initialize Editor UI
-    if (!editorUI.Init(window->GetNativeWindow())) {
+    if (!editorUI.Init(window->GetNativeWindow(), rhiDevice)) {
       ConsolePanel::LogError("Failed to initialize EditorUI");
       return false;
     }
@@ -296,11 +301,13 @@ private:
 
   void RenderScene() {
     auto rhiDevice = renderContext->GetDevice();
-    rhiDevice->BeginFrame();
 
     // Render to scene framebuffer
     if (sceneFB && sceneFB->IsInitialized()) {
       sceneFB->Bind();
+
+      rhiDevice->SetClearColor({0.0f, 0.0f, 0.0f, 1.0f});
+      rhiDevice->Clear(true, true, false);
 
       float vpAspect = 1.0f;
       if (viewportPanel && viewportPanel->GetViewportHeight() > 0) {
@@ -332,8 +339,6 @@ private:
     vp.width = window->GetWidth();
     vp.height = window->GetHeight();
     rhiDevice->SetViewport(vp);
-
-    rhiDevice->EndFrame();
   }
 };
 

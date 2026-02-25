@@ -4,7 +4,6 @@
 #include "editor_panel.hpp"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
 
 #include <GLFW/glfw3.h>
 #include <iostream>
@@ -12,17 +11,22 @@
 #include <string>
 #include <vector>
 
+#include "../rhi/rhi_device.h"
+
 class EditorUI {
+private:
 private:
   std::vector<std::unique_ptr<IEditorPanel>> panels;
   bool initialized = false;
   bool showDemoWindow = false;
+  RHI::IDevice *rhiDevice = nullptr;
 
 public:
   EditorUI() = default;
   ~EditorUI() { Shutdown(); }
 
-  bool Init(GLFWwindow *window) {
+  bool Init(GLFWwindow *window, RHI::IDevice *device) {
+    rhiDevice = device;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
@@ -48,8 +52,13 @@ public:
     style.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.10f, 0.10f, 0.12f, 1.0f);
     style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.06f, 0.06f, 0.08f, 1.0f);
 
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330");
+    if (rhiDevice->GetAPI() == RHI::API::OpenGL) {
+      ImGui_ImplGlfw_InitForOpenGL(window, true);
+    } else if (rhiDevice->GetAPI() == RHI::API::Vulkan) {
+      ImGui_ImplGlfw_InitForVulkan(window, true);
+    }
+
+    rhiDevice->InitImGui(window);
 
     initialized = true;
     std::cout << "[EditorUI] Initialized" << std::endl;
@@ -69,7 +78,9 @@ public:
       panel->OnShutdown();
     }
 
-    ImGui_ImplOpenGL3_Shutdown();
+    if (rhiDevice) {
+      rhiDevice->ShutdownImGui();
+    }
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
@@ -95,10 +106,10 @@ public:
   }
 
   void BeginFrame() {
-    if (!initialized)
+    if (!initialized || !rhiDevice)
       return;
 
-    ImGui_ImplOpenGL3_NewFrame();
+    rhiDevice->NewFrameImGui();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
   }
@@ -123,11 +134,11 @@ public:
   }
 
   void EndFrame() {
-    if (!initialized)
+    if (!initialized || !rhiDevice)
       return;
 
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    rhiDevice->RenderImGui();
   }
 
   bool IsInitialized() const { return initialized; }

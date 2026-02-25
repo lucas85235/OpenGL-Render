@@ -120,6 +120,13 @@ public:
    */
   virtual void DestroyTexture(TextureHandle texture) = 0;
 
+  /**
+   * @brief Returns the platform-native texture ID (e.g. OpenGL GLuint).
+   *        Required for interop with external systems like ImGui.
+   * @return Native ID, or 0 if handle is invalid.
+   */
+  virtual uint64_t GetNativeTextureID(TextureHandle texture) const = 0;
+
   // ========================================================================
   // SAMPLER MANAGEMENT
   // ========================================================================
@@ -348,6 +355,30 @@ public:
    * @brief Aguarda a GPU finalizar todas as operações pendentes
    */
   virtual void WaitIdle() = 0;
+
+  // ========================================================================
+  // IMGUI INTEGRATION
+  // ========================================================================
+
+  /**
+   * @brief Inicializa a integração gráfica do ImGui (backend de renderização)
+   */
+  virtual void InitImGui(void *window) = 0;
+
+  /**
+   * @brief Finaliza a integração gráfica do ImGui
+   */
+  virtual void ShutdownImGui() = 0;
+
+  /**
+   * @brief Inicia um novo frame gráfico do ImGui
+   */
+  virtual void NewFrameImGui() = 0;
+
+  /**
+   * @brief Renderiza os dados de desenho (DrawData) acumulados do ImGui
+   */
+  virtual void RenderImGui() = 0;
 };
 
 /**

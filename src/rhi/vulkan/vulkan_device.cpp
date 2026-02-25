@@ -1807,6 +1807,33 @@ void VulkanDevice::DestroyTexture(TextureHandle texture) {
   }
 }
 
+uint64_t VulkanDevice::GetNativeTextureID(TextureHandle texture) const {
+  auto it = textures.find(texture.id);
+  if (it != textures.end()) {
+    // Return the VkImage directly. This is a 64-bit non-dispatchable handle.
+    // If the application expects an ImGui texture ID (VkDescriptorSet), it
+    // should create it using ImGui_ImplVulkan_AddTexture.
+    return (uint64_t)reinterpret_cast<uintptr_t>(it->second.image);
+  }
+  return 0;
+}
+
+void VulkanDevice::InitImGui(void *window) {
+  // Vulkan ImGui backend init would go here
+}
+
+void VulkanDevice::ShutdownImGui() {
+  // Vulkan ImGui backend shutdown would go here
+}
+
+void VulkanDevice::NewFrameImGui() {
+  // Vulkan ImGui new frame
+}
+
+void VulkanDevice::RenderImGui() {
+  // Vulkan ImGui render
+}
+
 SamplerHandle VulkanDevice::CreateSampler(const SamplerDescriptor &desc) {
   VkSamplerCreateInfo samplerInfo{};
   samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;

@@ -292,6 +292,7 @@ public:
                              const void *data, uint32_t mipLevel) override;
   void GenerateMipmaps(TextureHandle texture) override;
   void DestroyTexture(TextureHandle texture) override;
+  uint64_t GetNativeTextureID(TextureHandle texture) const override;
 
   SamplerHandle CreateSampler(const SamplerDescriptor &desc) override;
   void DestroySampler(SamplerHandle sampler) override;
@@ -353,6 +354,12 @@ public:
 
   bool BeginFrame() override;
   void EndFrame() override;
+
+  // ImGui overrides
+  void InitImGui(void *window) override;
+  void ShutdownImGui() override;
+  void NewFrameImGui() override;
+  void RenderImGui() override;
 };
 
 // Debug callback

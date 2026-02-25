@@ -49,7 +49,7 @@ public:
     if (sceneFB && sceneFB->IsInitialized()) {
       // ImGui::Image expects a texture ID. For OpenGL, the raw handle is the
       // GLuint cast to ImTextureID.
-      ImTextureID texID = (ImTextureID)(uintptr_t)sceneFB->GetTexture().id;
+      ImTextureID texID = (ImTextureID)(uintptr_t)sceneFB->GetNativeTextureID();
       ImGui::Image(texID, ImVec2(static_cast<float>(w), static_cast<float>(h)),
                    ImVec2(0, 1), ImVec2(1, 0));
     } else {

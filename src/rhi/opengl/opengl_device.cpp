@@ -2,6 +2,10 @@
 #include "../shader_cross_compiler.hpp"
 #include <cstring>
 #include <iostream>
+
+#include "imgui.h"
+#include "imgui_impl_opengl3.h"
+
 namespace RHI {
 
 OpenGLDevice::~OpenGLDevice() { Shutdown(); }
@@ -565,7 +569,17 @@ TextureHandle OpenGLDevice::CreateTexture(const TextureDescriptor &desc) {
 
   if (desc.generateMipmaps) {
     glGenerateMipmap(texture.target);
+    glTexParameteri(texture.target, GL_TEXTURE_MIN_FILTER,
+                    GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(texture.target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  } else {
+    // Without mipmaps, the default GL_NEAREST_MIPMAP_LINEAR makes the texture
+    // incomplete. Set GL_LINEAR to ensure valid sampling.
+    glTexParameteri(texture.target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(texture.target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   }
+  glTexParameteri(texture.target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(texture.target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
   glBindTexture(texture.target, 0);
 
@@ -634,6 +648,14 @@ void OpenGLDevice::DestroyTexture(TextureHandle texture) {
     glDeleteTextures(1, &it->second.id);
     textures.erase(it);
   }
+}
+
+uint64_t OpenGLDevice::GetNativeTextureID(TextureHandle texture) const {
+  auto it = textures.find(texture.id);
+  if (it != textures.end()) {
+    return static_cast<uint64_t>(it->second.id);
+  }
+  return 0;
 }
 
 SamplerHandle OpenGLDevice::CreateSampler(const SamplerDescriptor &desc) {
@@ -1419,5 +1441,22 @@ void OpenGLDevice::DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
 }
 
 void OpenGLDevice::WaitIdle() { glFinish(); }
+
+// ========================================================================
+// IMGUI INTEGRATION
+// ========================================================================
+
+void OpenGLDevice::InitImGui(void *window) {
+  // In OpenGL, ImGui_ImplOpenGL3_Init requires the GLSL version
+  ImGui_ImplOpenGL3_Init("#version 330");
+}
+
+void OpenGLDevice::ShutdownImGui() { ImGui_ImplOpenGL3_Shutdown(); }
+
+void OpenGLDevice::NewFrameImGui() { ImGui_ImplOpenGL3_NewFrame(); }
+
+void OpenGLDevice::RenderImGui() {
+  ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
 
 } // namespace RHI
