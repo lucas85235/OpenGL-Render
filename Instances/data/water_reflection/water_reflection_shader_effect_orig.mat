@@ -1,0 +1,131 @@
+material {
+    name : "Reflection Water effect",
+    parameters : [
+        {
+            type : samplerCubemap,
+            name : reflectionCube,
+        },
+        {
+            type : sampler2d,
+            precision : medium,
+            name : flowMap,
+        },
+        {
+            type : sampler2d,
+            name : normalMap,
+        },
+        {
+            type : float,
+            name : wave_intensity
+        },
+        {
+            type : float,
+            name : wave_speed
+        },
+        {
+            type : float,
+            name : normal_tiling
+        },
+        {
+            type : float,
+            name : normal_speed
+        }
+    ],
+    requires : [
+        uv0,
+        tangents
+    ],
+    variables : [
+    ],
+    vertexDomain : object,
+    shadingModel : unlit,
+    blending : opaque,
+    quality : high,
+    culling : back,
+}
+
+vertex {
+
+    void materialVertex(inout MaterialVertexInputs material) {
+        // vec3 wave_position = getPosition().xyz; // local position
+        // // euler_angles: x: 270, so vector.z +up for making wave
+        // vec4 noise = textureLod(materialParams_flowMap, material.uv0, 0.0);
+        // wave_position.z = sin(abs((wave_position.x * 2.0 - 1.0)) + getUserTime().x * materialParams.wave_speed) * noise.r * materialParams.wave_intensity
+        //         + sin(abs((wave_position.y * 2.0 - 1.0)) + getUserTime().x * materialParams.wave_speed) * noise.r * materialParams.wave_intensity;
+        // material.worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), wave_position);
+    }
+}
+
+fragment {
+
+    float3 UnpackNormal(float4 normal) {
+        return (normal.xyz * 2.0 - 1.0);
+    }
+
+    float3 NormalBlend_Reoriented(float3 a, float3 b) {
+        float3 t = a.xyz + float3(0.0, 0.0, 1.0);
+        float3 u = b.xyz * float3(-1.0, -1.0, 1.0);
+        return (t / t.z) * dot(t, u) - u;
+    }
+
+    float Fresnel_Effect(float exp) {
+        float3 normal = getWorldGeometricNormalVector(); // already normalized in vertex shader
+        float3 viewDir = getWorldViewVector(); // normalize(getWorldCameraPosition() - getWorldPosition());
+
+        // float ndotv = getNdotV(); // can't use before prepareMaterial()
+        float ndotv = saturate(dot(normal, viewDir));
+        return pow(1.0 - ndotv, exp);
+    }
+
+    float3 NormalStrength(float3 In, float Strength) {
+        return float3(In.rg * Strength, mix(1.0, In.b, saturate(Strength)));
+    }
+
+    float4 Blend_Overwrite(float4 Base, float4 Blend, float Opacity)
+    {
+        return mix(Base, Blend, Opacity);
+    }
+
+    void material(inout MaterialInputs material) {
+        // Normal map
+        float offset = getUserTime().x * materialParams.normal_speed;
+
+        float2 uv_a = getUV0() * materialParams.normal_tiling + offset;
+        float2 uv_b = getUV0() * materialParams.normal_tiling - offset;
+        float3 normal_a = UnpackNormal(texture(materialParams_normalMap, uv_a));
+        float3 normal_b = UnpackNormal(texture(materialParams_normalMap, uv_b));
+
+        float3 blended = NormalBlend_Reoriented(normal_a, normal_b);
+
+        float minusFresnel = 1.0 - Fresnel_Effect(0.04);
+        float3 normalStrength = NormalStrength(blended, minusFresnel);
+
+        material.normal = normalStrength;
+
+        // Attention! here is the prepareMaterial()
+        prepareMaterial(material);
+
+        // Reflection texture
+        float3 reflectionTexture = texture(materialParams_reflectionCube, getWorldReflectedVector()).rgb;
+
+        // Alpha
+        float nearByWaterAlpha = 0.367;
+        float4 nearByWaterColor = float4(0.5764, 0.5254, 0.4862, 1.0);
+        float alpha = nearByWaterAlpha * (1.0 - saturate(getNormalizedViewportCoord().b)) + Fresnel_Effect(1.0);
+
+        // Precondition ambient
+        float4 nearByWaterColorAlpha = alpha * nearByWaterColor;
+        float nearByfresnel = Fresnel_Effect(0.44);
+        float3 preAmbient = mix(nearByWaterColorAlpha.rgb, reflectionTexture, nearByfresnel);
+
+        // Ambient
+        float waterColorFresnel = Fresnel_Effect(2.0);
+        float4 waterColorNear = float4(0.4627, 0.7490, 0.8196, 0.0);
+        float4 waterColorFar = float4(0.9921, 0.8980, 0.7803, 0.0);
+        float3 blndedWaterColor = Blend_Overwrite(waterColorNear, waterColorFar, waterColorFresnel).xyz;
+        float3 ambient = preAmbient * blndedWaterColor;
+
+        material.baseColor = float4(ambient, alpha);
+    }
+
+}

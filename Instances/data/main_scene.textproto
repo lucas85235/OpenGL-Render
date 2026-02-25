@@ -1,0 +1,47 @@
+# proto-import: proto/components/spin_state.proto
+# proto-message: Main scene
+
+name: "SceneRoot"
+
+transform: {
+  position: {
+    x: 0
+    y: 0
+    z: -5
+  }
+}
+
+# position is related with local position, always.
+children: {
+  name: "Tiger"
+  transform: {
+    position: {
+      x: 0
+      y: -0.5
+      z: 0
+    }
+  }
+
+  components: [
+    {
+      [type.googleapis.com/imp.GltfState] {
+        asset: "native/data/tiger.glb"
+      }
+    },
+    {
+      [type.googleapis.com/ix.samsung.homecomponents.SpinState]
+      {
+        degrees_per_second: 10
+      }
+    },
+    {
+      [type.googleapis.com/imp.GltfAnimatorState] {
+        starting_animation: {
+          options: {
+            looping: true
+          }
+        }
+      }
+    }
+  ]
+}

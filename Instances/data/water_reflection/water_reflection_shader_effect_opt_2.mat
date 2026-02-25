@@ -1,0 +1,92 @@
+material {
+    name : "Reflection Water effect",
+    parameters : [
+        {
+            type : samplerCubemap,
+            name : reflectionCube,
+        },
+        {
+            type : sampler2d,
+            precision : low,
+            name : normalMap,
+        },
+        {
+            type : float,
+            name : normal_tiling
+        },
+        {
+            type : float,
+            name : normal_speed
+        },
+        {
+           type : float,
+           name : normal_strength
+        }
+    ],
+    requires : [
+        uv0,
+        tangents
+    ],
+    variables : [
+        blendedNormal
+    ],
+    vertexDomain : object,
+    shadingModel : unlit,
+    blending : opaque,
+    quality : low,
+    culling : back,
+}
+
+vertex {
+
+    float3 UnpackNormal(float4 normal) {
+        return (normal.xyz * 2.0 - 1.0);
+    }
+
+    float3 NormalBlend_Reoriented(float3 a, float3 b) {
+        float3 t = a.xyz + float3(0.0, 0.0, 1.0);
+        float3 u = b.xyz * float3(-1.0, -1.0, 1.0);
+        return (t / t.z) * dot(t, u) - u;
+    }
+
+    void materialVertex(inout MaterialVertexInputs material) {
+        float offset = getUserTime().x * materialParams.normal_speed;
+        float2 uv_a = material.uv0 * materialParams.normal_tiling + offset;
+        float2 uv_b = material.uv0 * materialParams.normal_tiling - offset;
+        float3 normal_a = UnpackNormal(texture(materialParams_normalMap, uv_a));
+        float3 normal_b = UnpackNormal(texture(materialParams_normalMap, uv_b));
+        material.blendedNormal.xyz = NormalBlend_Reoriented(normal_a, normal_b);
+    }
+}
+
+fragment {
+
+    float3 NormalStrength(float3 In, float Strength) {
+        return float3(In.rg * Strength, mix(1.0, In.b, saturate(Strength)));
+    }
+
+    float Fresnel_Effect(float exp) {
+        float3 normal = getWorldGeometricNormalVector(); // already normalized in vertex shader
+        float3 viewDir = getWorldViewVector(); // normalize(getWorldCameraPosition() - getWorldPosition());
+
+        // float ndotv = getNdotV(); // can't use before prepareMaterial()
+        float ndotv = saturate(dot(normal, viewDir));
+        return pow(1.0 - ndotv, exp);
+    }
+
+    void material(inout MaterialInputs material) {
+
+        float minusFresnel = 1.0 - Fresnel_Effect(0.04);
+        material.normal =  NormalStrength(variable_blendedNormal.xyz , minusFresnel);
+        //material.normal =  NormalStrength(variable_blendedNormal.xyz , materialParams.normal_strength);;
+
+        // Attention! here is the prepareMaterial()
+        prepareMaterial(material);
+
+        // Reflection texture
+        float3 reflectionTexture =
+                texture(materialParams_reflectionCube, getWorldReflectedVector()).rgb;
+
+        material.baseColor = float4(reflectionTexture, 1.0);
+    }
+}

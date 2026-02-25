@@ -1,0 +1,35 @@
+material {
+    name : "Hand",
+    parameters : [
+        {
+            type : float,
+            name : extrusionFactor,
+        },
+        {
+            type : float4,
+            name : color,
+        }
+    ],
+    requires : [
+        tangents
+    ],
+    // The `blending` parameter can't be controlled at runtime so we need two separate materials if
+    // we want to change the blend function.
+    blending : {{blend_mode}},
+    shadingModel : unlit,
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        material.worldPosition += vec4(material.worldNormal * materialParams.extrusionFactor, 0.0);
+    }
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        vec4 color = materialParams.color;
+        material.baseColor = color * color.a;
+    }
+}

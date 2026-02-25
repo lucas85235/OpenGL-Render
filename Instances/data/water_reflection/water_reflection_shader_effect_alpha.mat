@@ -1,0 +1,106 @@
+material {
+    name : "Reflection Water effect with alpha",
+    parameters : [
+        {
+            type : samplerCubemap,
+            name : reflectionCube,
+        },
+        {
+            type : sampler2d,
+            name : normalMap,
+        },
+        {
+            type : float,
+            name : normal_tiling
+        },
+        {
+            type : float,
+            name : normal_speed
+        },
+        {
+           type: float4,
+           name: alpha_step_u,
+        },
+        {
+           type: float4,
+           name: alpha_step_v,
+        },
+        {
+            type : float,
+            name : alpha_step_multiplier
+        }
+    ],
+    requires : [
+        uv0,
+        tangents
+    ],
+    vertexDomain : object,
+    shadingModel : unlit,
+    blending : transparent,
+    quality : high,
+    culling : back,
+}
+
+fragment {
+
+    float3 UnpackNormal(float4 normal) {
+        return (normal.xyz * 2.0 - 1.0);
+    }
+
+    float3 NormalBlend_Reoriented(float3 a, float3 b) {
+        float3 t = a.xyz + float3(0.0, 0.0, 1.0);
+        float3 u = b.xyz * float3(-1.0, -1.0, 1.0);
+        return (t / t.z) * dot(t, u) - u;
+    }
+
+    float Fresnel_Effect(float exp) {
+        float3 normal = getWorldGeometricNormalVector(); // already normalized in vertex shader
+        float3 viewDir =
+                getWorldViewVector(); // normalize(getWorldCameraPosition() - getWorldPosition());
+
+        // float ndotv = getNdotV(); // can't use before prepareMaterial()
+        float ndotv = saturate(dot(normal, viewDir));
+        return pow(1.0 - ndotv, exp);
+    }
+
+    float3 NormalStrength(float3 In, float Strength) {
+        return float3(In.rg * Strength, mix(1.0, In.b, saturate(Strength)));
+    }
+
+    float rgb2luma(vec3 rgb){
+        return sqrt(dot(rgb, vec3(0.299, 0.587, 0.114)));
+    }
+
+    void material(inout MaterialInputs material) {
+        // Normal map
+        float offset = getUserTime().x * materialParams.normal_speed;
+
+        float2 uv_a = getUV0() * materialParams.normal_tiling + offset;
+        float2 uv_b = getUV0() * materialParams.normal_tiling - offset;
+        float3 normal_a = UnpackNormal(texture(materialParams_normalMap, uv_a));
+        float3 normal_b = UnpackNormal(texture(materialParams_normalMap, uv_b));
+
+        float3 blended = NormalBlend_Reoriented(normal_a, normal_b);
+
+        float minusFresnel = 1.0 - Fresnel_Effect(0.04);
+        float3 normalStrength = NormalStrength(blended, minusFresnel);
+
+        material.normal = normalStrength;
+
+        // Attention! here is the prepareMaterial()
+        prepareMaterial(material);
+
+        // Reflection texture
+        float3 reflectionTexture =
+                texture(materialParams_reflectionCube, getWorldReflectedVector()).rgb;
+
+        // Alpha
+        float alpha_u = smoothstep(materialParams.alpha_step_u.x, materialParams.alpha_step_u.y, getUV0().x)
+                 * (1.0 - smoothstep(materialParams.alpha_step_u.z, materialParams.alpha_step_u.w, getUV0()).x);
+        float alpha_v = smoothstep(materialParams.alpha_step_v.x, materialParams.alpha_step_v.y, getUV0().y)
+                 * (1.0 - smoothstep(materialParams.alpha_step_v.z, materialParams.alpha_step_v.w, getUV0().y));
+        float waterAlpha = (alpha_u * alpha_v)*materialParams.alpha_step_multiplier;
+
+        material.baseColor = float4(reflectionTexture*waterAlpha, waterAlpha);
+    }
+}
