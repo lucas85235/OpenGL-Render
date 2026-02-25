@@ -1,0 +1,210 @@
+material {
+    name : "White",
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    instanced : true,
+    quality: high,
+    parameters : [
+        { type: sampler2d, name: Tex },
+        { type: sampler2d, name: Texture1 },
+        { type: sampler2d, name: Texture2 },
+        { type: sampler2d, name: Texture3 },
+        { type: sampler2d, name: Texture4 },
+        { type: sampler2d, name: Texture5 },
+        { type: sampler2d, name: Texture6 },
+        { type: sampler2d, name: Texture7 },
+        { type: sampler2d, name: Texture8 },
+        { type: float3, name: FirstColor_01},
+        { type: float3, name: SecondColor_01},
+        { type: float3, name: FirstColor_02},
+        { type: float3, name: SecondColor_02},
+        { type: float3, name: FirstColor_03},
+        { type: float3, name: SecondColor_03},
+        { type: int, name: TextureWidth },
+        { type: float, name: Velocity },
+        { type: float3, name: Position },
+        { type: float3, name: Rotation },
+        { type: float, name: particleSize },
+        { type: int, name: Amount }
+    ],
+    variables : [
+        alpha,
+        tx
+    ],
+    requires :
+    [
+        uv0,
+        color
+    ]
+}
+
+vertex
+{
+    #include "getPixel.glsl"
+
+mat3 RotationXYZ(vec3 angle) {
+
+    angle = angle * PI / 180.0;
+    float cx = cos(angle.x);
+    float cy = cos(angle.y);
+    float cz = cos(angle.z);
+    float sx = sin(angle.x);
+    float sy = sin(angle.y);
+    float sz = sin(angle.z);
+
+    mat3 Rx = mat3(
+        1.0, 0.0, 0.0,
+        0.0, cx, sx,
+        0.0, -sx, cx
+    );
+
+    mat3 Ry = mat3(
+        cy,  0.0, sy,
+        0.0, 1.0, 0.0,
+        -sy, 0.0, cy
+    );
+
+    mat3 Rz = mat3(
+        cz,  sz,  0.0,
+        -sz, cz,  0.0,
+        0.0, 0.0, 1.0
+    );
+
+    return Rz * Ry * Rx;
+}
+
+    highp float pseudoRandom() {
+        return fract(sin(float(getInstanceIndex())) * 43758.5453123);
+    }
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        highp float4 position = getPosition();
+        highp float deltaTime = getUserTime().x;
+        float velocity = materialParams.Velocity;
+
+        highp float phi =  float(getInstanceIndex()) / (float(materialParams.Amount));
+        highp float tx = phi * 30.0;
+        deltaTime = mod(max(deltaTime - tx,0.0), (25.0) / velocity);
+
+        highp mat3 rot = RotationXYZ(materialParams.Rotation);
+
+        position.xyz *= vec3(materialParams.particleSize * 0.1 + 0.25 * pseudoRandom());
+
+        highp vec3 dpos = (getPixelValue(getInstanceIndex(), materialParams.TextureWidth).rgb);
+        dpos.x = mix(-1.0, 1.0, dpos.x);
+        dpos.y = mix(-1.0, 1.0, dpos.y);
+        dpos.z = mix(-1.0, 1.0, dpos.z);
+
+        position.xyz += materialParams.Position;
+
+        float windStrenght_min = 0.8;
+        float windStrenght_max = 1.2;
+        float deltaStrenght = windStrenght_max - windStrenght_min;
+
+        float windFrequency_min = 0.8;
+        float windFrequency_max = 1.2;
+        float deltaWindFrequency = windFrequency_max - windFrequency_min;
+
+        position.x += dpos.x + (windStrenght_min + deltaStrenght * pseudoRandom()) * sin((windFrequency_min + deltaWindFrequency * pseudoRandom()) * deltaTime);
+        position.y += dpos.y - deltaTime * velocity;
+        position.z += dpos.z;
+
+        float verticalOscillation = velocity * 0.5;
+        windFrequency_min = 1.0;
+        windFrequency_max = 1.0;
+        deltaWindFrequency = 1.0;
+        position.y += verticalOscillation * sin((windFrequency_min + deltaWindFrequency * pseudoRandom()) * deltaTime);
+
+        highp float4 worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), rot * position.xyz);
+
+        material.worldPosition = worldPosition;
+    }
+}
+
+fragment
+{
+    highp float pseudoRandom() {
+        return fract(sin(float(getInstanceIndex())) * 43758.5453123);
+    }
+
+    vec4 flipbook(sampler2D color1, sampler2D color2, float animation_velocity) {
+        highp vec2 uv = getUV0();
+        highp float iTime = getUserTime().x;
+
+        int totalFrames = 16*16*2;
+        int cols = 16;
+        int rows = 16;
+        float frameTime = 1.0 / animation_velocity;
+
+        float currentFrame = floor(mod(((iTime / frameTime) + 16.0 * 16.0 * 2.0 * pseudoRandom()), float(totalFrames)));
+
+        bool isPart1 = currentFrame < float(16*16);
+        float adjustedFrame = isPart1 ? currentFrame : currentFrame - float(16*16);
+
+        float col = mod(adjustedFrame, float(cols));
+        float row = floor(adjustedFrame / float(cols));
+
+        vec2 frameUV = vec2(col / float(cols), row / float(rows));
+        vec2 frameSize = vec2(1.0 / float(cols), 1.0 / float(rows));
+
+        vec2 atlasUV = frameUV + uv * frameSize;
+
+        atlasUV = clamp(atlasUV, 0.0, 1.0);
+
+        vec4 color = isPart1 ? texture(color1, atlasUV) : texture(color2, atlasUV);
+
+        return color;
+    }
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        highp vec4 tex[4];
+        tex[0] = flipbook(materialParams_Texture1, materialParams_Texture2, 24.0);
+        tex[1] = flipbook(materialParams_Texture3, materialParams_Texture4, 24.0);
+        tex[2] = flipbook(materialParams_Texture5, materialParams_Texture6, 24.0);
+        tex[3] = flipbook(materialParams_Texture7, materialParams_Texture8, 24.0);
+
+        vec3 result = vec3(0.0);
+        float alpha = 0.0;
+
+        highp float texture_index = mod(float(getInstanceIndex()), 4.0);
+        highp float index = mod(float(getInstanceIndex()), 9.0);
+
+        vec3 first_color[3];
+        first_color[0] = materialParams.FirstColor_01;
+        first_color[1] = materialParams.FirstColor_02;
+        first_color[2] = materialParams.FirstColor_03;
+
+        vec3 second_color[3];
+        second_color[0] = materialParams.SecondColor_01;
+        second_color[1] = materialParams.SecondColor_02;
+        second_color[2] = materialParams.SecondColor_03;
+
+        int i = 0;
+
+        if (texture_index == 0.0) {
+            i = int(index / 3.0);
+            result = mix(first_color[i], second_color[i], tex[0].rgb);
+            alpha = tex[0].a;
+        }
+        if (texture_index == 1.0) {
+            i = int(index / 3.0);
+            result = mix(first_color[i], second_color[i], tex[1].rgb);
+            alpha = tex[1].a;
+        }
+        if (texture_index == 2.0) {
+            i = int(index / 3.0);
+            result = mix(first_color[i], second_color[i], tex[2].rgb);
+            alpha = tex[2].a;
+        }
+        if (texture_index == 3.0) {
+            result = mix(first_color[2], second_color[2], tex[3].rgb);
+            alpha = tex[3].a;
+        }
+
+        material.baseColor = vec4(inverseTonemapSRGB(result) * alpha, alpha);
+    }
+}

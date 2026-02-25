@@ -1,0 +1,87 @@
+// A screen space shader.
+material {
+    name : "Quad",
+    parameters : [
+        { type: sampler2d, name: BaseTexture },
+        { type: sampler2d, name: AnimationTexture1 },
+        { type: sampler2d, name: AnimationTexture2 },
+        { type: float, name: MaxAnimationTime },
+        { type: float, name: EmissionRate },
+        { type: float3, name : Position},
+        { type: sampler2d, name: Tex },
+        { type: int, name: TextureWidth },
+        { type: int, name: Amount },
+        { type: float2, name: Size },
+        { type: float, name: Velocity },
+        { type: float3, name: FirstColor },
+        { type: float3, name: SecondColor },
+        { type: float, name: BlendColorAmount }
+    ],
+    variables : [
+        alpha,
+        time
+    ],
+    requires : [
+        uv0,
+        color,
+        position
+    ],
+
+    culling : none,
+    depthWrite : false,
+    instanced : true,
+    blending : transparent,
+    shadingModel : unlit,
+}
+
+vertex {
+    #include "getPixel.glsl"
+    #include "position.glsl"
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        vec3 position = getPosition().xyz;
+        position *= vec3(0.01 * materialParams.Size.x);
+
+        float deltaTime = getUserTime().x * materialParams.Velocity;
+        float instanceIndexF = float(getInstanceIndex())/materialParams.EmissionRate;
+        if(deltaTime >= instanceIndexF){
+            material.alpha.x = 1.0;
+
+            // time to spawn the particle
+            material.time.x = mod(abs(deltaTime - instanceIndexF), materialParams.MaxAnimationTime);
+        }
+
+        // max animation time
+        material.time.y = mix(0.8,1.0,hash21(vec2(instanceIndexF), instanceIndexF, float(materialParams.Amount))) * materialParams.MaxAnimationTime;
+
+        highp vec3 dpos = (getPixelValue(getInstanceIndex(), materialParams.TextureWidth).rgb);
+        dpos.x = mix(-1.0, 1.0, dpos.x);
+        dpos.z = mix(-1.0, 1.0, dpos.z);
+        float radius = 2.0f;
+
+        position.x += dpos.x;
+        position.z += dpos.z;
+
+        // new position based on the movement
+        position += getNewPosition(getInstanceIndex(), float(materialParams.Amount), material.time.x, position, material.time.y);
+        float4 worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position);
+        worldPosition.rgb += materialParams.Position;
+        material.worldPosition = worldPosition;
+    }
+}
+fragment {
+    #include"flip_book.glsl"
+    #include "position.glsl"
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        float animationTime = mix(0.8,1.0,hash21(vec2(float(getInstanceIndex())), float(getInstanceIndex()), float(materialParams.Amount)));
+
+        float4 base_color = texture(materialParams_BaseTexture, Flipbook(getUV0(),16.0,16.0,vec2(1.0,-1.0),30.0 * animationTime, variable_time.x + animationTime * 2.13));
+
+        base_color *= mix(vec4(materialParams.SecondColor,1.0),vec4(materialParams.FirstColor,1.0),materialParams.BlendColorAmount);
+
+        float alpha = base_color.a * alphaBlend(variable_time.x, materialParams.MaxAnimationTime, 1.0);
+
+        material.baseColor = vec4(inverseTonemapSRGB(base_color.rgb * alpha), alpha);
+    }
+}

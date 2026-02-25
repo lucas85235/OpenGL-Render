@@ -1,0 +1,171 @@
+material {
+    parameters :
+    [
+        {
+            type : sampler2d,
+            name : BaseTexture,
+        },
+        {
+            type : float3,
+            name : Velocity,
+        },
+        {
+            type : float,
+            name : Life,
+        },
+        {
+            type : float3,
+            name : FireflyMinColor,
+        },
+        {
+            type : float3,
+            name : FireflyMaxBaseColor,
+        },
+        {
+            type : float3,
+            name : FireflyMinBaseColor,
+        },
+        {
+            type : float,
+            name : MinBrightness,
+        },
+        {
+            type : float,
+            name : MaxBrightness,
+        },
+        {
+            type : float3,
+            name : MaxMovementRange,
+        },
+        {
+            type : float,
+            name : MaxRandomBlikingTime,
+        },
+        {
+            type : float,
+            name : MinRandomBlikingTime,
+        },
+        {
+            type : int,
+            name : ChangePositionWithTime,
+        },
+        {
+            type : float,
+            name : TimeToChangePosition,
+        },
+        {
+            type : float,
+            name : CurrentTime,
+        },
+        {
+            type : float,
+            name : VelocityMultiplier,
+        },
+        {
+            type : float,
+            name : SizeMultiplier,
+        }
+    ],
+    requires :
+    [
+        uv0,
+        color
+    ],
+    name : "Firefly particle Material",
+    blending : transparent,
+    shadingModel : unlit,
+
+    variables:
+    [
+        {
+            type : float,
+            name : PI,
+            value : 3.1415,
+        },
+    ]
+}
+
+vertex
+{
+    
+    float hash21(vec2 p) {
+        p = fract(p * vec2(123.34, 456.21));
+        p += dot(p, p + 45.32);
+        return fract(p.x * p.y);
+    }
+
+    highp float animationTime(float endValue, float animationVelocity)
+    {
+        float random_velocity = hash21(vec2(materialParams.Velocity.x * 1123.213 + 0.5f));
+        highp float userTime = (getUserTime().x * animationVelocity + 1000.0) * random_velocity;
+        highp float currentTime = mod(userTime, endValue); // Current time in seconds
+        highp float t = userTime / endValue; // Interpolation factor between 0.0 and 1.0
+        return mix(0.0, 1.0, t);
+    }
+
+    float normalizedSine(float value){
+        return (sin(value) + 1.0f / 2.0f);
+    }
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        float random_velocity = hash21(vec2(materialParams.Velocity.x * 1123.213 + 0.5f));
+        float user_time = (getUserTime().x * 0.3 + 1000.0) * random_velocity;
+        // Calculate vertex position
+        float3 position = getPosition().xyz;
+
+        float sin_factor = ((sin(user_time * materialParams.Velocity.x * materialParams.Velocity.y)));
+        float cos_factor = ((cos(materialParams.Velocity.x * materialParams.Velocity.y * 3.1415)) + 1.0)/2.0;
+        float random_number = cos_factor * sin_factor;
+        float phase = 0.0;
+
+        float random_factor_x = animationTime(90.0 * random_velocity, 1.0f/materialParams.MaxMovementRange.x) * 50.0 * hash21(vec2(materialParams.Velocity.x));
+        float random_factor_y = animationTime(90.0 * random_velocity, 1.0f/materialParams.MaxMovementRange.y) * 50.0 * hash21(vec2(materialParams.Velocity.x));
+        float random_factor_z = animationTime(90.0 * random_velocity, 1.0f/materialParams.MaxMovementRange.z) * 50.0 * hash21(vec2(materialParams.Velocity.x));
+        float velocityThresholdWithSize = 0.3;
+
+        float horizontal_velocity = (sin(random_factor_x * materialParams.Velocity.x * materialParams.VelocityMultiplier + phase)) * materialParams.MaxMovementRange.x * velocityThresholdWithSize;
+        float depth_velocity = (sin(random_factor_z * materialParams.Velocity.y * materialParams.VelocityMultiplier + phase)) * materialParams.MaxMovementRange.z * velocityThresholdWithSize;
+        
+        float sin1 = sin(user_time * hash21(vec2(materialParams.Velocity.y)) + phase * 307.3) * 0.02 * random_velocity;
+        float sin2 = sin(user_time*0.4 * hash21(vec2(materialParams.Velocity.x * position.x)) + phase * 203.7) * 0.05;
+        float sin3 = sin(user_time*10.0 * hash21(vec2(materialParams.Velocity.z)) + phase * 100.12) * 0.005 * random_velocity;
+
+        float finalSin = (sin1 + sin2 + sin3) * materialParams.Velocity.y;
+
+        float vel_two = mix(depth_velocity, horizontal_velocity, cos(user_time * materialParams.Velocity.y * materialParams.VelocityMultiplier + phase));
+        float vel_three = mix(horizontal_velocity, depth_velocity, cos(user_time * materialParams.Velocity.z * materialParams.VelocityMultiplier + phase));
+
+        position.x += (vel_two + vel_three) * hash21(vec2(materialParams.Velocity.x));
+        position.y += finalSin * materialParams.MaxMovementRange.y * 35.0 * velocityThresholdWithSize;
+        position.z += depth_velocity;
+
+        material.worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position);
+
+        float max_time_to_blink = mix(1.0f, 99999.0, random_velocity);
+        float blink_amount = floor(mix(80000.0, 99999.0,random_velocity));
+        float initial_cicle_to_cut = floor(mix(1.0f,2.0f,random_velocity));
+        float time_to_blink = abs(sin(min(max(user_time*PI*blink_amount/max_time_to_blink,PI*initial_cicle_to_cut),blink_amount*PI)));
+        float alpha = mix(materialParams.MinBrightness, materialParams.MaxBrightness, time_to_blink);
+        vec3 randomBaseColor = mix(materialParams.FireflyMinBaseColor, materialParams.FireflyMaxBaseColor, random_velocity);
+        vec3 color = mix(materialParams.FireflyMinColor, randomBaseColor, random_velocity);
+        material.color = vec4(color * alpha, alpha);
+    }
+}
+
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        float new_size = mix(3.4,4.8,materialParams.Velocity.y);
+        vec4 srgb_color = texture(materialParams_BaseTexture, new_size * getUV0() * 1.0 / materialParams.SizeMultiplier);
+        srgb_color = smoothstep(0.3,0.8,srgb_color);
+        float alpha = srgb_color.x;
+
+        // Get previous color calculated in the vertex shader
+        vec4 final_color = vec4(vec3(1.0, 1.0, 0.0) * alpha, alpha);
+        
+        material.baseColor = vec4(inverseTonemapSRGB(final_color.xyz) * alpha, alpha);
+    }
+}

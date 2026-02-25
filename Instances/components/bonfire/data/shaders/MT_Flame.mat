@@ -1,0 +1,129 @@
+material {
+    name : "MT_Flame",
+    parameters : [
+        { type: sampler2d, name: Texture },
+        { type: sampler2d, name: Noise1 },
+        { type: sampler2d, name: Noise2 },
+        { type: float, name: Speed },
+        { type: float4, name: Color1 },
+        { type: float4, name: Color2 },
+        { type: float4, name: SmokeColor },
+        { type: float4, name: BloomColor },
+        { type: float2, name: BloomOffset },
+        { type: float2, name: Offset },
+        { type: float, name: BloomSize },
+        { type: float, name: Brightness },
+        { type: float, name: NoiseStrength },
+        { type: float, name: SmokeHeight },
+        { type: float, name: WindSpeed },
+        { type: float, name: WindAmplitude },
+        { type: float, name: TimeOffset }
+    ],
+    requires : [
+        uv0
+    ],
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite : false,
+    flipUV : true,
+}
+
+
+vertex
+{
+    mat3 RotationXYZ(vec3 angle) {
+
+        angle = angle * PI / 180.0;
+        float cx = cos(angle.x);
+        float cy = cos(angle.y);
+        float cz = cos(angle.z);
+        float sx = sin(angle.x);
+        float sy = sin(angle.y);
+        float sz = sin(angle.z);
+
+        mat3 Rx = mat3(
+            1.0, 0.0, 0.0,
+            0.0, cx, sx,
+            0.0, -sx, cx
+        );
+
+        mat3 Ry = mat3(
+            cy,  0.0, sy,
+            0.0, 1.0, 0.0,
+            -sy, 0.0, cy
+        );
+
+        mat3 Rz = mat3(
+            cz,  sz,  0.0,
+            -sz, cz,  0.0,
+            0.0, 0.0, 1.0
+        );
+
+        return Rz * Ry * Rx;
+    }
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        // Wind simulation
+        highp vec3 position = getPosition().xyz;
+        highp float time = getUserTime().x + materialParams.TimeOffset;
+        highp vec2 uv = material.uv0;
+        float speed = materialParams.WindSpeed;;
+        float amplitude = materialParams.WindAmplitude;
+
+        // Periodic wind
+        position = RotationXYZ(vec3(0.0, 0.0, sin(time * speed) * amplitude * saturate(0.8 - uv.y))) * position;
+
+        // Noise-based wind
+        //position = RotationXYZ(vec3(0.0, 0.0, noise(uv + vec2(time * speed)) * amplitude * saturate(0.5 - uv.y))) * position;
+
+        float4 worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position);
+        material.worldPosition = worldPosition;
+    }
+ }
+
+
+fragment
+{
+    lowp vec2 tilingAndOffset(lowp vec2 uv, lowp vec2 tiling, highp vec2 offset) {
+        return fract((uv + offset) * tiling);
+    }
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        vec2 uv = getUV0();
+        highp float time = getUserTime().x + materialParams.TimeOffset;
+        vec4 smoke_color = materialParams.SmokeColor;
+
+        // Noise from textures
+        vec2 tiledUV1 = tilingAndOffset(uv, vec2(0.5, 0.5), vec2(0.0, time * materialParams.Speed));
+        vec2 tiledUV2 = tilingAndOffset(uv, vec2(0.5, 0.5), vec2(0.0, time * materialParams.Speed));
+        float noise1 = texture(materialParams_Noise1, tiledUV1).r;
+        float noise2 = texture(materialParams_Noise2, tiledUV2).r;
+        vec2 noise = vec2(noise1 + noise2, 0) * materialParams.NoiseStrength;
+
+        // Main texture + noise UV displacement
+        float2 adjustedFireUV = uv;
+        adjustedFireUV += materialParams.Offset;
+        highp vec4 fireTexture = texture(materialParams_Texture, adjustedFireUV + noise);
+        fireTexture.rgb *= mix(materialParams.Color1.rgb, materialParams.Color2.rgb, noise1) * materialParams.Brightness;
+
+        // Alpha
+        lowp float final_alpha = fireTexture.a * mix(materialParams.Color1.a, materialParams.Color2.a, noise1);
+        vec4 finalColor = vec4(fireTexture.rgb, final_alpha);
+
+        // Bloom effect
+        float bloomTiling = 1.0 / materialParams.BloomSize;
+        vec4 bloom = texture(materialParams_Texture, tilingAndOffset(uv, vec2(bloomTiling, bloomTiling), materialParams.BloomOffset));
+        bloom *= materialParams.BloomColor;
+        finalColor += bloom;
+
+        // Changes flame color to smoke above according to the height
+        float height = materialParams.SmokeHeight;
+        finalColor.rgb = mix(finalColor.rgb, smoke_color.rgb, saturate((1.0 - saturate(uv.y + height)) * (1.0 - height) * 10.0));
+
+        // Final color output
+        material.baseColor = vec4(finalColor.rgb * finalColor.a, finalColor.a);
+    }
+}

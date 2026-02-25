@@ -1,0 +1,109 @@
+material {
+    name : "FlockingBirdsEffect",
+    parameters :
+    [
+        {
+            type: sampler2d,
+            name: BaseTexture
+        },
+        {
+            type: float4,
+            name: Color1
+        },
+        {
+            type: float4,
+            name: Color2
+        },
+        {
+            type : float3,
+            name : Velocity,
+        },
+        {
+            type : float,
+            name : MaxFrames,
+        },
+        {
+            type : float,
+            name : Fps,
+        },
+        {
+            type : float2,
+            name : Tile,
+        },
+        {
+            type : float,
+            name : Life,
+        },
+        {
+            type : float,
+            name : CurrentTime,
+        },
+        {
+            type : float,
+            name : CurrentCycleTime,
+        },
+        {
+            type : int,
+            name : ColorTransitionMode,
+        },
+        {
+            type : float3,
+            name : Noise,
+        },
+        {
+            type : int,
+            name : Index,
+        }
+    ],
+    requires : [
+        uv0,
+        color
+    ],
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite : false,
+    flipUV : false,
+}
+
+vertex
+{
+    #include "movement.glsl"
+    #include "colorUtils.glsl"
+    #include "randomUtils.glsl"
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        vec3 position = getPosition().xyz;
+        float indexF = float(materialParams.Index);
+        float random = hash21(vec2(indexF), indexF, 11.0);
+        float time = getUserTime().x;
+        vec3 position_ = MRU(position, vec3(-materialParams.Velocity.x,0.,0.), materialParams.CurrentTime);
+        vec4 color = colorOverLifeTimeFract3(vec4(materialParams.Color1.rgb,0.0), 0., vec4(materialParams.Color1.rgb, 1.0), vec2(0.2,0.8),
+                                        vec4(materialParams.Color1.rgb, 0.0), 1., materialParams.CurrentTime, materialParams.Life);
+        material.color = color;
+        vec4 worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position_);
+        //worldPosition.y += sin(time * random)/10.0;
+        material.worldPosition = worldPosition;
+    }
+}
+
+fragment
+{
+    #include "animationUtils.glsl"
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        highp vec2 uv = getUV0();
+
+        vec2 flip_uv = Flipbook(uv, materialParams.Tile, (materialParams.CurrentTime + materialParams.Noise.x) * materialParams.Fps,
+                                materialParams.MaxFrames);
+
+        highp vec4 imageTexture = texture(materialParams_BaseTexture, flip_uv);
+        highp vec4 mColor = getColor();
+
+        imageTexture = imageTexture.a * mColor;
+        imageTexture.rgb = imageTexture.rgb * imageTexture.a;
+        material.baseColor = imageTexture;
+    }
+}

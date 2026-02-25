@@ -1,0 +1,33 @@
+material {
+    parameters :
+    [
+        { type : sampler2d, name : BaseTexture },
+        { type : float4, name : Color },
+        { type : float, name : Frequency },
+        { type : float, name : AlphaLowerMultiplier }
+    ],
+    requires :
+    [
+        uv0
+    ],
+    name : "MT_GroundLight",
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite: false,
+}
+
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+
+        highp float time = getUserTime().x;
+
+        vec4 base_color = texture(materialParams_BaseTexture, getUV0());
+        base_color.rgb *= materialParams.Color.rgb;
+        float alpha_value = base_color.a * materialParams.Color.a;
+        base_color.a = mix(alpha_value * materialParams.AlphaLowerMultiplier, alpha_value, sin(time * materialParams.Frequency));
+        material.baseColor = vec4(base_color.rgb * base_color.a, base_color.a);
+    }
+}

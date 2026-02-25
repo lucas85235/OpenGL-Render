@@ -1,0 +1,94 @@
+material {
+    name : "MT_Clouds",
+    parameters : [
+        { type: sampler2d, name: Mask },
+        { type: sampler2d, name: Aurora },
+        { type: sampler2d, name: Noise1 },
+        { type: sampler2d, name: Noise2 },
+        { type: sampler2d, name: Noisev },
+        { type: float4, name: Color1 },
+        { type: float4, name: Color2 },
+        { type: float4, name: Color3 },
+        { type: float, name: NoiseStrength },
+        { type: float, name: GradientSpeed },
+        { type: float, name: VerticalNoiseStrength }
+    ],
+    requires : [
+        uv0
+    ],
+    // vertexDomain : object,
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite : false,
+    flipUV : false,
+    // doubleSided:true,
+}
+
+// vertex
+// {
+//     void materialVertex(inout MaterialVertexInputs material)
+//     {
+//         float3 position = getPosition().xyz;
+
+//         position.z = sin( position.x*2. + getUserTime().x) * 0.5;
+//         material.worldPosition=mulMat4x4Float3(getWorldFromModelMatrix(),position);
+        
+//     }
+// }
+
+fragment
+{
+    vec4 ColorGradient3(vec2 uv, vec4 color1, vec4 color2, vec4 color3, float middlePoint) {
+        return mix(
+            mix(color1, color2, uv.x / middlePoint),
+            mix(color2, color3, (uv.x - middlePoint) / (1.1 - middlePoint)),
+            step(middlePoint, uv.x)
+        );
+    }
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+
+        vec2 uv = getUV0();
+        uv.y = 1. - uv.y;
+        highp float time = getUserTime().x;
+
+        // Load and calculate Noise
+        highp vec2 noise_uv = uv + time * 0.035;
+        highp vec2 noise_uv2 = uv + time * 0.035 + vec2(0.3, 0.6);
+        vec2 noise1 = vec2(texture(materialParams_Noise1, noise_uv).r, texture(materialParams_Noise2, noise_uv2 + 0.1).r);
+        vec2 noise2 = vec2(texture(materialParams_Noise1, noise_uv2).r + 0.1, texture(materialParams_Noise2, noise_uv).r);
+
+        // Gradient color variation
+        highp float gradientTime = 0.5 + 0.5 * cos(time * materialParams.GradientSpeed + noise_uv.y);
+
+        // Noise and mask alpha
+        float mask = texture(materialParams_Mask, uv).a;
+        vec2 noise = (noise1) * materialParams.NoiseStrength;
+
+        // vertical noise
+        highp vec2 uvf = uv * 2. - 1.;
+        // uvf.x = uvf.x * getResolution().x / getResolution().y;
+        uvf.y = uvf.y + time * 0.065;
+        uvf.x = uvf.x - time * 0.004125;
+        highp float noise_texture = texture(materialParams_Noisev, uvf - noise2*0.025).r;
+        highp vec4 noise_color = ColorGradient3(uv, materialParams.Color1, materialParams.Color2, materialParams.Color3, gradientTime);
+        noise_color *= noise_texture * materialParams.VerticalNoiseStrength * mask;       
+
+        // vec4 color1 = mix(materialParams.Color1, materialParams.Color3, gradientTime);
+        // vec4 color2 = mix(materialParams.Color2, materialParams.Color1, gradientTime);
+        // vec4 color3 = mix(materialParams.Color3, materialParams.Color2, gradientTime);
+
+        // Aurora
+        highp float aurora_texture = texture(materialParams_Aurora, uv + noise).a;
+        vec4 aurora_color = ColorGradient3(uv, materialParams.Color1, materialParams.Color2, materialParams.Color3, gradientTime);
+        aurora_color *= aurora_texture;
+
+        // Aurora + Vertical noise
+        aurora_color = (aurora_color + noise_color) * 0.5;
+
+        // Final color output
+        material.baseColor = vec4(inverseTonemapSRGB(aurora_color.rgb), aurora_color.a);
+    }
+}

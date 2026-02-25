@@ -1,0 +1,46 @@
+material {
+    parameters :
+    [
+        { type : sampler2d, name : Noise },
+        { type : sampler2d, name : Gradient },
+        { type : sampler2d, name : AlphaMask },
+        { type: float4, name: Color1 },
+        { type: float4, name: Color2 },
+        { type: float, name: Speed }
+    ],
+    requires :
+    [
+        uv0
+    ],
+    name : "MT_BonfireBase",
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite: false,
+}
+
+fragment
+{
+    lowp vec2 tilingAndOffset(lowp vec2 uv, lowp vec2 tiling, highp vec2 offset)
+    {
+        return fract((uv + offset) * tiling);
+    }
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        highp vec2 uv = getUV0();
+        highp float time = getUserTime().x;
+
+        vec2 tiledUV = tilingAndOffset(uv, vec2(1.0, 1.0), vec2(0.0, time * materialParams.Speed));
+
+        float noise = texture(materialParams_Noise, tiledUV).r;
+        float gradient = texture(materialParams_Gradient, uv).a;
+        float alpha_mask = texture(materialParams_AlphaMask, uv).a;
+
+        // Choose color based on noise
+        vec4 final_color = mix(materialParams.Color1, materialParams.Color2, noise);
+
+        final_color *= gradient * alpha_mask;
+        material.baseColor = final_color;
+    }
+}

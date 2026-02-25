@@ -1,0 +1,93 @@
+material {
+    parameters :
+    [
+        { type : sampler2d, name : BaseTexture },
+        { type : float4, name : BaseColor },
+        { type : float3, name : Velocity },
+        { type : float, name : Life },
+        { type : float, name : CurrentTime },
+        { type : float, name : CurrentCycleTime },
+        { type : float, name : VelocityMultiplier },
+        { type : float3, name : Rotation },
+        { type: float, name: Mass },
+        { type: float, name: GravityFactor }
+    ],
+    requires :
+    [
+        uv0,
+        color,
+        position
+    ],
+
+    name : "MT_Sparks",
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite: false,
+}
+
+vertex
+{
+    #include "movement.glsl"
+
+    mat3 RotationXYZ(vec3 angle) {
+        angle = angle * PI / 180.0;
+        float cx = cos(angle.x);
+        float cy = cos(angle.y);
+        float cz = cos(angle.z);
+        float sx = sin(angle.x);
+        float sy = sin(angle.y);
+        float sz = sin(angle.z);
+
+        mat3 Rx = mat3(
+            1.0, 0.0, 0.0,
+            0.0, cx, sx,
+            0.0, -sx, cx
+        );
+
+        mat3 Ry = mat3(
+            cy,  0.0, sy,
+            0.0, 1.0, 0.0,
+            -sy, 0.0, cy
+        );
+
+        mat3 Rz = mat3(
+            cz,  sz,  0.0,
+            -sz, cz,  0.0,
+            0.0, 0.0, 1.0
+        );
+
+        return Rz * Ry * Rx;
+    }
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        // Calculate vertex position
+        vec3 position = getPosition().xyz;
+        mat3 rotation = RotationXYZ(materialParams.Rotation);
+
+        position = MRU(position, materialParams.Velocity, materialParams.CurrentTime);
+        material.worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), rotation * position);
+    }
+}
+
+fragment
+{
+    #include "colorUtils.glsl"
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        highp vec2 uv = getUV0();
+        vec4 transparent = vec4(0);
+
+        vec4 particle_color = texture(materialParams_BaseTexture, uv);
+        particle_color *= materialParams.BaseColor;
+        //particle_color.rgb *= materialParams.Brightness;
+
+        // make a smooth transition with a start transition time + animation time + end time
+        float alpha_blend = alphaBlend(materialParams.CurrentTime, materialParams.Life - 0.1, 0.15);
+
+        float final_alpha = particle_color.a * alpha_blend;
+        material.baseColor = vec4(particle_color.rgb * final_alpha, final_alpha);
+    }
+}
