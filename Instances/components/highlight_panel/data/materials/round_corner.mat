@@ -1,0 +1,46 @@
+// A shader that curves the vertices by uv
+
+material {
+    name : "RoundCorner",
+    parameters : [
+        {
+            type : float4,
+            name : color,
+        },
+        {
+            type : float,
+            name : height,
+        },
+        {
+            type : float,
+            name : width,
+        },
+        {
+            type : float,
+            name : corner_radius,
+            // in world unit
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    culling : none,
+    depthWrite : true,
+    blending : transparent,
+    shadingModel : unlit,
+}
+
+fragment {
+#include "round_corner.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        vec2 uv = getUV0();
+
+        float r = materialParams.corner_radius / materialParams.width;
+        float aspect_ratio = materialParams.width / materialParams.height;
+
+        float alpha = alphaAtCorner(uv, r, aspect_ratio, materialParams.color.w);
+        material.baseColor = materialParams.color * alpha;
+    }
+}

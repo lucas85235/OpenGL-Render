@@ -1,0 +1,65 @@
+material {
+    name : "PanelGrid",
+    requires : [
+        "position",
+        "uv0"
+    ],
+    parameters : [
+        {
+            type : float,
+            name : alpha
+        },
+        {
+            type : float,
+            name : lineWidth
+        },
+        {
+            type : float,
+            name : cellSize
+        },
+        {
+            type : float3,
+            name : color
+        }
+    ],
+    shadingModel : "unlit",
+    blending : "transparent",
+    depthWrite : false,
+    doubleSided : true
+}
+
+fragment {
+    // Returns pixel intensity for a non-aliased wireframe grid effect.
+    // Heavily inspired by the final code example in "The Best Darn Grid Shader Yet"
+    // by Brian Golus (https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8#5ef5)
+    // Adapted from the original HLSL to GLSL with refactoring and naming changes.
+    float getPixelIntensity(highp vec2 uv) {
+        // Compute UV's partial derivatives w.r.t x and y.
+        highp vec2 dUvdx = dFdx(uv);
+        highp vec2 dUvdy = dFdy(uv);
+        // Compute the magnitude of change in both x and y, for both u and v.
+        vec2 uvDerivMag = vec2(length(vec2(dUvdx.x, dUvdy.x)), length(vec2(dUvdx.y, dUvdy.y)));
+
+        // Core grid calculation.
+        vec2 gridUV = 1.0 - abs(fract(abs(uv)) * 2.0 - 1.0);
+
+        // Apply anti-aliasing. Increase draw width as the partial derivative magnitudes increase.
+        vec2 lineWidth = vec2(materialParams.lineWidth);
+        vec2 drawWidth = clamp(lineWidth, uvDerivMag, vec2(0.5));
+        vec2 lineAA = uvDerivMag * 1.5;
+        vec2 grid2 = smoothstep(drawWidth + lineAA, drawWidth - lineAA, gridUV);
+        grid2 *= clamp(lineWidth / drawWidth, 0.0, 1.0);
+        grid2 = mix(grid2, lineWidth, clamp(uvDerivMag * 2.0 - 1.0, 0.0, 1.0));
+
+        // Blend the horizontal and vertical grid components for the final effect.
+        return mix(grid2.x, 1.0, grid2.y);
+    }
+
+    void material(inout MaterialInputs material) {
+        highp vec2 uv = getUserWorldPosition().xz / materialParams.cellSize;
+        prepareMaterial(material);
+        float alpha = materialParams.alpha * getPixelIntensity(uv);
+        vec3 rgb = inverseTonemapSRGB(materialParams.color) * alpha;
+        material.baseColor = vec4(rgb, alpha);
+    }
+}

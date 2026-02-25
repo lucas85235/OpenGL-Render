@@ -1,0 +1,62 @@
+material {
+    parameters : [
+        {
+            type : sampler2d,
+            name : BaseTexture,
+            format : float,
+            precision : high,
+        },
+        {
+            type : float3,
+            name : Velocity,
+        },
+        {
+            type : float3,
+            name : Color,
+        },
+        {
+            type : float,
+            name : SizeMultiplier,
+        }
+    ],
+    variables : [
+             eyeDirection
+    ],
+    requires :
+    [
+        uv0,
+        color
+    ],
+    name : "Material",
+    blending : transparent,
+    culling : none,
+    shadingModel : unlit,
+    quality : high,
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        highp vec4 pos = getPosition() * 0.5;
+        //material.worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), pos.xyz);
+        highp float3 p = getPosition().xyz * 0.5;
+        highp float3 u = mulMat4x4Float3(getViewFromClipMatrix(), p).xyz;
+        material.eyeDirection.xyz = mulMat3x3Float3(getWorldFromViewMatrix(), u);
+    }
+}
+
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+
+        vec3 uv = variable_eyeDirection.xyz;
+        highp float flicker = (sin(getUserTime().x * materialParams.Velocity[0]) + 1.0) / 2.0;
+        flicker = clamp(flicker, 0.6, 1.0);
+        highp vec3 star_color = materialParams.Color;
+        highp float dist = length(uv - vec3(0.0));
+        highp float intensity = smoothstep(1.0, 1.0 - 0.6, dist);
+
+        material.baseColor = vec4( inverseTonemapSRGB(star_color * flicker), 1.0);
+    }
+}

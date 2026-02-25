@@ -1,0 +1,58 @@
+material {
+    name : "LightBloomWithNoise",
+    parameters : [
+        { type: float4, name: color },
+        { type: float, name: brightness },
+        { type: sampler2d, name: texture },
+        { type: float, name: fadeSpeed },
+        { type: float, name: fadeOffset },
+        { type: float2, name: alphaRange },
+        { type: float4, name: noiseColor },
+        { type: sampler2d, name: noiseTexture },
+        { type: float2, name: noiseTiling },
+        { type: float2, name: noiseDirection },
+        { type: float, name: noiseSpeed }
+    ],
+    requires : [
+        color,
+        uv0
+    ],
+    culling : front,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false
+}
+
+fragment {
+    #include "utils.glsl"
+
+    vec2 tilingAndOffsetHighp(vec2 uv, vec2 tiling, highp vec2 offset) {
+        return fract((uv + offset) * tiling);
+    }
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        highp float time = getUserTime().x;
+        vec2 uv = getUV0();
+        vec4 color = texture(materialParams_texture, uv);
+
+        // Alpha variation according to time
+        float mixFactor = sin((time + materialParams.fadeOffset) * materialParams.fadeSpeed);
+
+        // Alpha premultiplication, color and brightness adjustment
+        color.a = color.a * mix(materialParams.alphaRange.x, materialParams.alphaRange.y, mixFactor);
+        color = premultiplyAlpha(color);
+        color.xyz *= materialParams.color.xyz;
+        color.xyz *= materialParams.brightness;
+
+        // Noise tiling and offset, alpha premultiplication and color adjustment
+        vec2 offset = materialParams.noiseDirection * materialParams.noiseSpeed * time;
+        vec2 noiseUV = tilingAndOffsetHighp(uv, materialParams.noiseTiling, offset);
+        vec4 noiseColor = premultiplyAlpha(texture(materialParams_noiseTexture, noiseUV)) * materialParams.noiseColor;
+
+        // Final color with multiply
+        material.baseColor = color * noiseColor;
+    }
+}

@@ -1,0 +1,122 @@
+material {
+    name : "Blur Panel",
+    parameters : [
+        {
+            type : sampler2d,
+            name : blurSampler
+        },
+        {
+            type : sampler2d,
+            name : androidViewTexture,
+        },
+        {
+            type : samplerExternal,
+            name : androidViewTextureExternal,
+        },
+        {
+            type : bool,
+            name : isColorFormatYUV,
+        },
+        {
+            // 2D texture transformation matrix
+            type : float4x4,
+            name : uvTransform,
+        },
+        {
+            type : float,
+            name : globalAlpha,
+        },
+        {
+            type : float,
+            name : overlapFadeAlpha,
+        },
+        {
+            // Converts the source color in linear space into dest color (BT709)
+            // in linear space.
+            type : float3x3,
+            name : colorTransform,
+        }
+    ],
+    constants : [
+        {
+            // Indicates whether this material is using an external texture.
+            name : isExternal,
+            type : bool
+        },
+        {
+            name : isColorSpaceLinearSRGB,
+            type : bool,
+            default : true
+        },
+        {
+            name : isColorSpaceBT2020,
+            type : bool,
+        },
+        {
+            name : isTransferLinear,
+            type : bool,
+            default : true
+        },
+        {
+            name : isTransferST2084,
+            type : bool,
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    variables : [
+        // Captures whether the material is being used in stereo mode or not at 'x'
+        // If true, captures the index of the camera eye at 'y'
+        // 0.0 is the left eye, 1.0 is the right eye.
+        stereoData
+    ],
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    depthWrite : false,
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        material.stereoData.x = 1.0;
+        material.stereoData.y = (instance_index % 2 < 1) ? 0.0 : 1.0;
+    }
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        highp vec2 uv = getUV0();
+
+        highp vec3 uv3d = vec3(uv.x, uv.y, 1.0);
+        highp vec4 uv3d_transformed = mulMat4x4Float3(materialParams.uvTransform, uv3d);
+        highp vec2 texture_pos = vec2(uv3d_transformed.x, uv3d_transformed.y);
+        vec4 androidColor;
+        if (materialConstants_isExternal) {
+            androidColor = texture(materialParams_androidViewTextureExternal, texture_pos);
+        } else {
+            androidColor = texture(materialParams_androidViewTexture, texture_pos);
+        }
+        if (materialParams.isColorFormatYUV) {
+            androidColor.rgb = ycbcrToRgb(androidColor.r, androidColor.gb);
+        }
+        androidColor *= materialParams.globalAlpha * materialParams.overlapFadeAlpha;
+
+        const float eps = 0.001;
+        if (androidColor.a < eps) {
+            discard;
+        } else if (androidColor.a >= 1.0 - eps) {
+            material.baseColor.rgb = androidColor.rgb;
+        } else {
+            vec2 bluruv = getNormalizedViewportCoord().xy;
+            if (variable_stereoData.x > 0.0) {
+                bluruv.x = (bluruv.x * 0.5) + (variable_stereoData.y * 0.5);
+            }
+            vec4 blurColor = texture(materialParams_blurSampler, bluruv);
+            material.baseColor.rgb =
+                    (androidColor.rgb * androidColor.a) + blurColor.rgb * (1.0 - androidColor.a);
+        }
+    }
+}

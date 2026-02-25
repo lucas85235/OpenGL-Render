@@ -1,0 +1,127 @@
+// A shader that highlights the boundry of a panel.
+
+material {
+    name : "Highlight",
+    parameters : [
+        {
+            type : float4,
+            name : color,
+        },
+        {
+            type : float2,
+            name : cursorUV,
+        },
+        {
+            type : float,
+            name : cornerBoundary,
+        },
+        {
+            type : int,
+            name : state,
+        },
+        {
+            type : float,
+            name : width,
+        },
+        {
+            type : float,
+            name : height,
+        },
+        {
+            type : float,
+            name : cornerRadius,
+        },
+        {
+            type : float,
+            name : globalAlpha,
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+}
+
+fragment {
+#include "round_corner.glsl"
+
+    const int kStateMove = 1;
+    const int kStateResize = 2;
+
+    float dist(vec2 point1, vec2 point2) {
+        return sqrt(pow(point1.x - point2.x, 2.0) + pow(point1.y - point2.y, 2.0));
+    }
+
+    float getAlpha(vec2 corner) {
+        // TODO(chiantiyan): This circle radius is arbitrary. Will need further UX instruction to
+        // decide the final value.
+        float circle_radius = materialParams.cornerBoundary * 1.5;
+        vec2 uv = getUV0();
+
+        vec2 frag_coord = vec2(uv.x * materialParams.width, uv.y * materialParams.height);
+        float dist_to_center =
+                dist(frag_coord,
+                     vec2(materialParams.width * corner.x, materialParams.height * corner.y));
+
+        // TODO(chiantiyan): Alpha amplifier is arbitrary. Needs further UX specs.
+        float corner_alpha = materialParams.color.w * (1.0 - dist_to_center / circle_radius) * 2.0f;
+
+        return step(dist_to_center, circle_radius) * corner_alpha;
+    }
+
+    float cornerAlpha() {
+        vec2 cursorUV = materialParams.cursorUV.xy;
+
+        // UV range to trigger the resize highlight
+        vec2 corner_boundary = vec2(materialParams.cornerBoundary / materialParams.width,
+                                    materialParams.cornerBoundary / materialParams.height);
+
+        // The below if statements rely on cursorUV which is a uniform, thus
+        // all threads will follow the same branch.
+
+        // render right top corner (1, 0)
+        if (cursorUV.x > .5 && cursorUV.y < .5) {
+            return getAlpha(vec2(1.0, 0.0));
+        }
+
+        // render right bot corner (1, 1)
+        if (cursorUV.x > .5 && cursorUV.y > .5) {
+            return getAlpha(vec2(1.0, 1.0));
+        }
+
+        // render left bot corner (0, 1)
+        if (cursorUV.x < .5 && cursorUV.y > .5) {
+            return getAlpha(vec2(0.0, 1.0));
+        }
+
+        // render left top corner (0, 0)
+        if (cursorUV.x < .5 && cursorUV.y < .5) {
+            return getAlpha(vec2(0.0, 0.0));
+        }
+
+        return 0.0;
+    }
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        float alpha = 0.0;
+        vec2 uv = getUV0();
+
+        if (materialParams.state == kStateResize) {
+            alpha = cornerAlpha();
+        } else if (materialParams.state == kStateMove) {
+            alpha = materialParams.color.w;
+        }
+
+        // round corners
+        float r = materialParams.cornerRadius / materialParams.width;
+        float aspect_ratio = materialParams.width / materialParams.height;
+        alpha = alphaAtCorner(uv, r, aspect_ratio, alpha);
+
+        material.baseColor = materialParams.color * alpha * materialParams.globalAlpha;
+    }
+}

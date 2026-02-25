@@ -1,0 +1,31 @@
+material {
+    name : "TexturedModel",
+    parameters : [
+        { type : sampler2d, name : BaseColor },
+        { type : float2, name : alphaRange },
+        { type : float, name : fadeSpeed },
+        { type : float3, name : color }
+    ],
+    requires : [
+        uv0
+    ],
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : true,
+}
+
+fragment {
+    #include "utils.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        vec4 srgb_color = texture(materialParams_BaseColor, getUV0());
+        float mixFactor = sin(getUserTime().x * materialParams.fadeSpeed);
+        srgb_color.a *= mix(materialParams.alphaRange.x, materialParams.alphaRange.y, mixFactor);
+        srgb_color.xyz *= materialParams.color;
+        srgb_color = premultiplyAlpha(srgb_color);
+        material.baseColor = srgb_color;
+    }
+}

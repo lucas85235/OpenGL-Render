@@ -1,0 +1,189 @@
+material{
+    name:"SnowflakeEffect",
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    instanced : true,
+    parameters:[
+        {type:int,name:TextureWidth},
+
+        {type:sampler2d,name:Tex},
+        {type:sampler2d,name:BaseTexture},
+        {type:float4,name:Colour},
+
+
+        {type:float,name:PositionOffsetX},
+        {type:float,name:PositionOffsetY},
+        {type:float,name:PositionOffsetZ},
+        {type:int,name:RotationAxis},
+
+        //Height = Life Time
+        {type:float,name: LifeTime},
+
+        // Scale
+        {type:float,name:MinScale},
+        {type:float,name:MaxScale},
+
+        // Movement Snow
+        {type:float,name: MinNoiseSpeed},
+        {type:float,name: MaxNoiseSpeed},
+        {type:float,name: MinNoiseAmplitude},
+        {type:float,name: MaxNoiseAmplitude},
+        {type:float,name: MinNoiseFrequency},
+        {type:float,name: MaxNoiseFrequency},
+        {type:float,name: MinVelocity},
+        {type:float,name: MaxVelocity},
+
+        {type:float,name:Amount},
+        {type:float3,name:Inclination}
+    ],
+
+    variables : [
+        alpha,
+        time
+    ],
+
+    requires:[
+        uv0,
+        color
+    ],
+
+    vertexDomain:object,
+    shadingModel:unlit,
+    blending:transparent,
+    quality:low,
+    culling:back,
+    flipUV:true,
+    doubleSided:true
+}
+
+vertex
+{
+    #include "getPixel.glsl"
+    #include "colorUtils.glsl"
+
+    float hash21(vec2 n)
+    {
+        return fract(sin(n.x * n.y) * 43758.5453123);
+    }
+
+    vec4 RotationX(float angle, vec4 pos)
+    {
+        vec4 vertexPosition = pos;
+        float cx = cos(angle);
+        float sx = sin(angle);
+
+        vertexPosition *= mat4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, cx,  sx,  0.0,
+        0.0, -sx, cx,  0.0,
+        0.0, 0.0, 0.0, 1.0
+        );
+
+        return vertexPosition;
+    }
+
+    vec4 RotationY(float angle, vec4 pos)
+    {
+        vec4 vertexPosition = pos;
+        float cy = cos(angle);
+        float sy = sin(angle);
+
+        vertexPosition *= mat4
+        (
+            cy,  0.0, sy,  0.0,
+            0.0, 1.0, 0.0, 0.0,
+            -sy, 0.0, cy,  0.0,
+            0.0, 0.0, 0.0, 1.0
+        );
+
+        return vertexPosition;
+    }
+
+    vec3 snowMovement(vec3 position)
+    {
+        float u_time = getUserTime().x;
+        float indexF = float(getInstanceIndex());
+
+        float randomSpeed = mix(materialParams.MinNoiseSpeed,materialParams.MaxNoiseSpeed, hash21(vec2(indexF)));
+        float randomAmplitude = mix(materialParams.MinNoiseAmplitude, materialParams.MaxNoiseAmplitude, hash21(vec2(indexF)));
+        float randomFrequency = mix(materialParams.MinNoiseFrequency,materialParams.MaxNoiseFrequency, hash21(vec2(indexF)));
+        float randomIndex = float(indexF) / 2000.0;
+
+
+
+        vec3 windOffset = vec3(randomSpeed + randomAmplitude * sin(randomIndex * randomFrequency * u_time));
+        return windOffset;
+    }
+
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        // Initial Parameters
+        highp float3 position = getPosition().xyz;
+        float deltaTime = getUserTime().x * 5.0;
+        float indexF = float(getInstanceIndex());
+        float randomVelocity = mix(materialParams.MinVelocity, materialParams.MaxVelocity, hash21(vec2(indexF)));
+        float initialPositionX;
+        float initialPositionY;
+        float initialPositionZ;
+
+        vec4 color;
+
+        // Random Functions
+        float randomSize = mix(materialParams.MinScale, materialParams.MaxScale, hash21(vec2(indexF)));
+
+        // Initial Scale
+        position *= vec3(randomSize);
+
+        // Life Time
+        material.time.x = mod(deltaTime, materialParams.LifeTime);
+
+        // Particle Index Position
+        highp vec4 dpos = (getPixelValue(getInstanceIndex(), materialParams.TextureWidth).rgba);
+
+        initialPositionX = materialParams.PositionOffsetX;
+        initialPositionY = materialParams.PositionOffsetY;
+        initialPositionZ = materialParams.PositionOffsetZ;
+
+        if (materialParams.RotationAxis == 0)
+        {
+            position = RotationX(dpos.a, vec4(position, 1.0)).xyz;
+        };
+
+        if (materialParams.RotationAxis == 1)
+        {
+            position = RotationY(dpos.a, vec4(position, 1.0)).xyz;
+        };
+
+        // Adjust Particle Index Position in Vertex
+        position.x += dpos.x - initialPositionX;
+        position.z += dpos.z + initialPositionZ;
+
+        vec3 snowMovement = snowMovement(position);
+        position.xz += snowMovement.xz;
+
+        // Animation Position
+        float animationTime = mod(dpos.y - randomVelocity * deltaTime, materialParams.LifeTime);
+        position.y += initialPositionY + animationTime;
+
+        color.rgb = materialParams.Colour.rgb;
+        color.a = (alphaBlend(animationTime, materialParams.LifeTime, 5.0f)) * materialParams.Colour.a;
+        material.color = color;
+
+        material.worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position);
+    }
+}
+
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        vec4 srgb_color = texture(materialParams_BaseTexture, getUV0());
+
+        // Get previous color calculated in the vertex shader
+        float alpha = getColor().a * srgb_color.a;
+        material.baseColor = vec4(getColor().rgb * alpha, alpha);
+    }
+}

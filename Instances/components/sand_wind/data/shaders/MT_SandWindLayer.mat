@@ -1,0 +1,55 @@
+material {
+    name : "MT_SandWindLayer",
+    parameters : [
+        { type: sampler2d, name: Texture },
+        { type: sampler2d, name: Noise1 },
+        { type: sampler2d, name: Noise2 },
+        { type: sampler2d, name: AlphaMask },
+        { type: float, name: Speed },
+        { type: float4, name: Color },
+        { type: float, name: Brightness },
+        { type: float, name: Frequency },
+        { type: float, name: NoiseStrength },
+        { type: float, name: Fade }
+    ],
+    requires : [
+        uv0
+    ],
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite : false,
+    flipUV : false,
+}
+
+fragment
+{
+    lowp vec2 tilingAndOffset(lowp vec2 uv, lowp vec2 tiling, highp vec2 offset) {
+        return fract((uv + offset) * tiling);
+    }
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        vec2 uv = getUV0();
+        highp float time = getUserTime().x;
+
+        highp vec2 noise_uv1 = uv;
+        noise_uv1.x += time * 0.035;
+        highp vec2 noise_uv2 = uv + time * 0.070 + vec2(0.3, 0.6);
+        vec2 noise1 = vec2(texture(materialParams_Noise1, noise_uv1).r, texture(materialParams_Noise2, noise_uv2 + 0.1).r);
+        vec2 noise = noise1 * materialParams.NoiseStrength;
+
+        vec2 tiledUV = tilingAndOffset(uv, vec2(2.0, 1.0), vec2(time * materialParams.Speed, 0));
+        highp vec4 layerTexture = texture(materialParams_Texture, tiledUV + noise);
+
+        layerTexture.rgb *= materialParams.Color.rgb * materialParams.Brightness;
+
+        lowp float alpha_mask = texture(materialParams_AlphaMask, uv).r;
+        lowp float final_alpha = layerTexture.a * alpha_mask * materialParams.Color.a * materialParams.Fade;
+
+        vec4 finalColor = vec4(layerTexture.rgb, final_alpha);
+
+        // Final color output
+        material.baseColor = vec4(inverseTonemapSRGB(finalColor.rgb) * finalColor.a, finalColor.a);
+    }
+}

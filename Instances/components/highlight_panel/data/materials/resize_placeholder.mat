@@ -1,0 +1,45 @@
+// A shader that shows a blank placeholder while resizing an app.
+
+material {
+    name : "RoundCorner",
+    parameters : [
+        {
+            type : float4,
+            name : color,
+        },
+        {
+            type : float2,
+            name : size,
+        },
+        {
+            type : float,
+            name : cornerRadius,
+        },
+        {
+            type : float,
+            name : smoothingDistance,
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+}
+
+fragment {
+#include "sdf.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        float quadDist =
+                roundedCornerQuadSdf(getUV0(), materialParams.size, materialParams.cornerRadius);
+
+        // Mask out corners via smoothstep to prevent aliasing.
+        float alphaMask = 1.0 - smoothstep(-materialParams.smoothingDistance, 0.0, quadDist);
+
+        material.baseColor = materialParams.color * materialParams.color.w * alphaMask;
+    }
+}

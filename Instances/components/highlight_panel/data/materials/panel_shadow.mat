@@ -1,0 +1,54 @@
+material {
+    name : "PanelShadow",
+    parameters : [
+        {
+            type : float2,
+            name : size
+        },
+        {
+            type : float,
+            name : cornerRadius
+        },
+        {
+            type : float4,
+            name : color
+        },
+        {
+            type : float,
+            name : smoothingDistance
+        },
+        {
+            type : float,
+            name : borderWidth
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    shadingModel : "unlit",
+    blending : "transparent",
+    depthWrite : false,
+    doubleSided : true
+}
+
+fragment {
+#include "sdf.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        float smoothDist = materialParams.smoothingDistance;
+        float borderWidth = materialParams.borderWidth;
+
+        float quadDist =
+                roundedCornerQuadSdf(getUV0(), materialParams.size, materialParams.cornerRadius);
+        float alphaMaskOuter = 1.0 - smoothstep(-smoothDist, 0.0, quadDist);
+        float alphaMaskInner = 1.0 -
+                smoothstep(-2.0 * smoothDist - borderWidth, -smoothDist - borderWidth, quadDist);
+
+        float alphaMask = alphaMaskOuter - alphaMaskInner;
+
+        vec4 color = materialParams.color;
+        material.baseColor = color * color.a * alphaMask;
+    }
+}

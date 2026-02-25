@@ -1,0 +1,91 @@
+material {
+    name : "White",
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    instanced : true,
+    quality: high,
+    parameters : [
+        { type: sampler2d, name: Tex },
+        { type: sampler2d, name: Texture },
+        { type: int, name: TextureWidth },
+        { type: int, name: Amount },
+        { type: float, name: Radius},
+        { type: bool, name: Play},
+        { type: float3, name: CameraPosition}
+    ],
+    requires :
+    [
+        uv0,
+        color
+    ],
+    variables : [
+        visibility
+    ]
+}
+
+vertex
+{
+    #include "getPixel.glsl"
+    #include "billboard.glsl"
+
+    highp float pseudoRandom() {
+        return fract(sin(float(getInstanceIndex())) * 43758.5453123);
+    }
+
+    highp float hash21(highp vec2 n, highp float index, highp float amount) {
+        index = index/amount;
+        float phase = index * 2.0 * 3.1415;
+        return (sin(n.x * n.y * phase) + 1.0) / 2.0;
+    }
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        if (!materialParams.Play)
+            return;
+
+        int index = getInstanceIndex();
+        float currentTime = mod(getUserTime().x, 10.0);
+        float amount = float(materialParams.Amount);
+
+        highp float3 position = vec3(0.0);
+        float size = 0.02;
+        float speed = 250.0;
+
+        bool isActive = currentTime * speed > float(index) && currentTime * speed - 250.0 < float(index);
+        highp float x = isActive ? mix(-0.001, 0.001, hash21(vec2(float(index), float(index)), float(index), float(amount))) : 0.0;
+        highp float y = isActive ? mix(0.001, 0.003, pseudoRandom()) : 0.0;
+        highp float iTime = isActive ? currentTime * speed - float(index) : 0.0;
+
+        material.visibility.x = isActive ? 1.0 : 0.0;
+
+        highp vec4 dpos = getPixelValue(index, materialParams.TextureWidth);
+        dpos.r = mix(-1.0, 1.0, dpos.r);
+        dpos.g = mix(-1.0, 1.0, dpos.g);
+        dpos.b = mix(-1.0, 1.0, dpos.b);
+        dpos.a = mix( 0.0, 1.0, dpos.a);
+
+        float radius = materialParams.Radius;
+        position.x += dpos.r * radius + (x * iTime);
+        position.y += dpos.g * radius - (y * iTime);
+        position.z += dpos.b * radius;
+
+        vec3 rotatedPosition = billboard(materialParams.CameraPosition, position.xyz, getPosition().xyz, size);
+
+        material.worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), rotatedPosition + position.xyz);
+    }
+}
+
+fragment
+{
+    #include "getPixel.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        vec4 star_color = texture(materialParams_Texture, getUV0());
+        float alpha = variable_visibility.x;
+
+        material.baseColor = vec4( inverseTonemapSRGB(star_color.rgb) * star_color.a * alpha, star_color.a * alpha);
+    }
+}

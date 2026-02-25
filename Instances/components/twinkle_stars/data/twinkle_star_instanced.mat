@@ -1,0 +1,79 @@
+material {
+    name : "White",
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    instanced : true,
+    quality: high,
+    parameters : [
+        { type: sampler2d, name: Tex },
+        { type: int, name: TextureWidth },
+        { type: int, name: Amount },
+        { type: float2, name: Velocity},
+        { type: float2, name: Size},
+        { type: float, name: Radius},
+        { type: float3, name: Position},
+        { type: float3, name: Color}
+    ],
+    requires :
+    [
+        uv0,
+        color
+    ]
+}
+
+vertex
+{
+    #include "getPixel.glsl"
+
+    highp float hash(float n) {
+        return fract(sin(n) * 43758.5453123);
+    }
+
+    highp float randomizeSize(float seed) {
+        return hash(seed) * (materialParams.Size[1] - materialParams.Size[0]) + materialParams.Size[0];
+    }
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        highp float3 position = getPosition().xyz;
+
+        position *= vec3(randomizeSize(float(getInstanceIndex())));
+        position += materialParams.Position;
+
+        highp vec4 dpos = getPixelValue(getInstanceIndex(), materialParams.TextureWidth);
+        dpos.r = mix(-1.0, 1.0, dpos.r);
+        dpos.g = mix(-1.0, 1.0, dpos.g);
+        dpos.b = mix(-1.0, 1.0, dpos.b);
+        dpos.a = mix( 0.0, 1.0, dpos.a);
+
+        float radius = materialParams.Radius;
+
+        position.x += dpos.r * radius;
+        position.y += dpos.g * radius;
+        position.z += dpos.b * radius;
+
+        material.worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position);
+    }
+}
+
+fragment
+{
+    #include "getPixel.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        highp float time = getUserTime().x;
+        highp float flicker = 0.0;
+
+        highp float index = float(getInstanceIndex()) / float(materialParams.Amount);
+        highp float phase = index * 2.0 * PI;
+        highp float speed = index * (materialParams.Velocity[1] - materialParams.Velocity[0]) + materialParams.Velocity[0];
+
+        flicker = (sin(time * speed + phase) + 1.0) / 2.0;
+
+        vec3 star_color = materialParams.Color;
+        material.baseColor = vec4( inverseTonemapSRGB(star_color * flicker).rgb, 1.0 * flicker);
+    }
+}

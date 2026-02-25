@@ -1,0 +1,71 @@
+material {
+    name : "SunshineVFX",
+    parameters : [
+        { type: float4, name: shineColor },
+        { type: float3, name: shineDirection },
+        { type: float, name: shineBrightness },
+        { type: sampler2d, name: shinePattern },
+        { type: float, name: shineFadeSpeed },
+        { type: float2, name: alphaRange },
+        { type: float4, name: dustColor },
+        { type: sampler2d, name: dustPattern },
+        { type: float2, name: dustPatternTiling },
+        { type: float2, name: dustDirection },
+        { type: float, name: dustSpeed }
+    ],
+    requires : [
+        color,
+        uv0
+    ],
+    culling : front,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        // Shine
+        // Displace vertices using shineDirection according to the UV0
+        material.worldPosition.xyz += mix(vec3(0), materialParams.shineDirection, material.uv0.y);
+    }
+}
+
+fragment {
+    #include "utils.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        vec4 transparentColor = vec4(0);
+        float time = getUserTime().x; // in seconds
+        vec4 vertex_color = getColor();
+        vec2 uv = getUV0();
+
+        // Shine
+        vec4 shineColor = texture(materialParams_shinePattern, uv);
+        float mixFactor = sin(getUserTime().x * materialParams.shineFadeSpeed);
+        shineColor.a = shineColor.a * mix(materialParams.alphaRange.x, materialParams.alphaRange.y, mixFactor);
+        shineColor = premultiplyAlpha(shineColor);
+        shineColor.xyz *= materialParams.shineColor.xyz;
+        shineColor.xyz *= materialParams.shineBrightness;
+
+        // Dust
+        // Use the view vector as UV for the dust, apply tiling and offset
+        // Sample twice with different offsets
+        vec4 dustBaseColor = materialParams.dustColor;
+        vec2 tiling = materialParams.dustPatternTiling;
+
+        // First dust sampling
+        vec2 offset = materialParams.dustDirection * materialParams.dustSpeed * time;
+        vec2 dustUV = tilingAndOffset(uv, tiling, offset);
+        // Sample dust pattern at the calculated UV and multiplied by the color
+        vec4 dustColor = premultiplyAlpha(texture(materialParams_dustPattern, dustUV)) * dustBaseColor;
+        dustBaseColor = dustColor;
+
+        // Final color
+        material.baseColor.xyz = shineColor.xyz * dustBaseColor.xyz;
+        material.baseColor.a = shineColor.a * dustBaseColor.a;
+    }
+}

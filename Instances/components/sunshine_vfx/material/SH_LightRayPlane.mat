@@ -1,0 +1,52 @@
+material {
+    name : "LightRayPlane",
+    parameters : [
+        { type: float3, name: direction },
+        { type: float4, name: color },
+        { type: float, name: brightness },
+        { type: float, name: fadeSpeed },
+        { type: float, name: fadeOffset },
+        { type: sampler2d, name: texture },
+        { type: float2, name: alphaRange }
+    ],
+    requires : [
+        color,
+        uv0
+    ],
+
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        // Displace mesh according to the UV.y
+        material.worldPosition.xyz += mix(vec3(0), materialParams.direction, material.uv0.y);
+    }
+}
+
+fragment {
+    #include "utils.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        highp vec4 color = texture(materialParams_texture, getUV0());
+        highp float time = getUserTime().x;
+
+        // Alpha variation according to time
+        highp float mixFactor = sin((time + materialParams.fadeOffset) * materialParams.fadeSpeed);
+
+        // Alpha premultiplication, color and brightness adjustment
+        color.a = color.a * mix(materialParams.alphaRange.x, materialParams.alphaRange.y, mixFactor);
+        color = premultiplyAlpha(color);
+        color.xyz *= materialParams.color.xyz;
+        //color.xyz *= materialParams.brightness;
+
+        // Final color
+        material.baseColor = color;
+    }
+}

@@ -1,0 +1,50 @@
+load("@com_google_impress//build_tools:imp.bzl",  "if_desktop", "imp_default_jni_linkopts", "imp_google3_copts", "if_android")
+load("@com_google_impress//build_tools:imp_material.bzl", "imp_material")
+load("@com_google_impress//build_tools:assets.bzl", "imp_assets")
+package(
+    default_applicable_licenses = [],
+    default_visibility = [
+        "//visibility:public",
+    ],
+    features = [
+        "-use_header_modules",  # Incompatible with -std=c++14.
+    ],
+)
+
+imp_material(
+    name = "grass_material",
+    src = "data/grass.mat",
+    includes = [
+        "data/getPixel.glsl"
+    ],
+)
+
+imp_assets(
+    name = "grass_assets",
+    srcs = [
+        # Materials
+        ":grass_material",
+        "data/TX_grass_01.png",
+        "data/TX_grass_02.png",
+        "data/TX_grass_influence.png",
+    ],
+    namespace = "ix::samsung::homecomponents::assets"
+)
+
+cc_library(
+    name = "grass",
+    srcs = [
+        "grass.cc",
+    ],
+    hdrs = [
+        "grass.h",
+        "grass_position.h",
+    ],
+    copts = imp_google3_copts(),
+    deps = [
+        "@com_google_impress//:api",
+        ":grass_assets",
+        "//native/components/particle_instances",
+        "//proto/components:grass_state_proto_cc_imp",
+    ],
+)

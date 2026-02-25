@@ -1,0 +1,80 @@
+material {
+    name : "MT_Clouds",
+    parameters : [
+        { type: sampler2d, name: Noise },
+        { type: sampler2d, name: Mask },
+        { type: sampler2d, name: Animation },
+        { type: float4, name: Color },
+        { type: float, name: Density },
+        { type: float, name: Velocity },
+        { type: float, name: SmallCloudsSpeed },
+        { type: int, name: Samples },
+        { type: float, name: Tiling }
+    ],
+    requires : [
+        uv0
+    ],
+    vertexDomain : object,
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite : false,
+    flipUV : false,
+    priority : 3,
+}
+
+fragment {
+    vec2 tilingAndOffset(vec2 uv, vec2 tiling, highp vec2 offset) {
+        return fract((uv + offset) * tiling + materialParams.Tiling);
+    }
+
+    float sampleNoise(vec2 uv, float offset, float initial_time) {
+        highp float time = getUserTime().x * offset * materialParams.Velocity;
+
+        vec2 tiling = vec2(1.2f, 1.2f);
+
+        lowp vec2 uv1 = vec2(
+            uv.x * initial_time + (time + 0.5),
+            uv.y + (sin(time + 0.5)));
+
+        lowp vec2 uv2 = vec2(
+            uv.x * initial_time + ((time * 0.9 + 0.5) * 0.8),
+            uv.y + (sin(time * 0.9 + 0.5)));
+
+        float animation = texture(materialParams_Animation, tilingAndOffset(uv, tiling, uv1 + time)).a;
+
+        // Animate clouds small areas
+        float sine = (sin(getUserTime().x * materialParams.SmallCloudsSpeed) + animation) / 2.0;
+        float isAnimated = mix(0.0, sine, animation);
+
+        float noise = texture(materialParams_Noise, tilingAndOffset(uv, tiling, uv1)).a - isAnimated;
+        noise += texture(materialParams_Noise, tilingAndOffset(uv, tiling, uv2)).a * 0.8 - isAnimated;
+        return noise * 0.5;
+    }
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        vec2 uv = getUV0();
+
+        // Create multiple layer to create volumetric effect
+        float density = 0.0;
+        for (int i = 1; i <= materialParams.Samples; i++) {
+            density += sampleNoise(uv, float(i) * 0.01, float(i)) / float(materialParams.Samples);
+        }
+
+        // Adjust clouds density
+        density *= materialParams.Density;
+
+        // Paint clouds
+        vec4 cloudColor = vec4(density);
+        vec4 skyColor = vec4(0.0);
+        vec4 finalColor = mix(skyColor, cloudColor, density) * materialParams.Color;
+
+        // Apply mask to hide quad bounds
+        float alpha_mask = texture(materialParams_Mask, uv).r;
+
+        // Fragment final color
+        float finalAlpha = finalColor.a * alpha_mask;
+        material.baseColor = vec4(finalColor.rgb * finalAlpha, finalAlpha);
+    }
+}

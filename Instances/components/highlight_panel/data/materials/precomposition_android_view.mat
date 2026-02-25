@@ -1,0 +1,167 @@
+material {
+    name : "Precomposition Android View",
+    parameters : [
+        {
+            type : sampler2d,
+            name : androidViewTexture,
+        },
+        {
+            type : samplerExternal,
+            name : androidViewTextureExternal,
+        },
+        {
+            // 2D texture transformation matrix
+            type : float4x4,
+            name : uvTransform,
+        },
+        {
+            type : float,
+            name : globalAlpha,
+        },
+        {
+            type : float,
+            name : overlapFadeAlpha,
+        },
+        {
+            // Indicates whether this is a single color quad
+            type : bool,
+            name : isSolidColorQuad,
+        },
+        {
+            // Solid color associated with the quad
+            type : float4,
+            name : solidColor,
+        },
+        {
+            type : float2,
+            name : size,
+        },
+        {
+            type : float,
+            name : cornerRadius,
+        },
+
+        // Below are parameters for color conversions. They are unlikely to change
+        // during the entire lifecycle of this material.
+        {
+            // Converts the source color in linear space into dest color (BT709)
+            // in linear space. Unlikely to change during the entire lifecycle of
+            // this material.
+            type : float3x3,
+            name : colorTransform,
+        },
+        {
+            // Whether or not to enable cropping.
+            type : bool,
+            name : enableCrop,
+        },
+        {
+            // Origin of crop volume, in local coordinates.
+            type : float3,
+            name : cropHalfExtents,
+        },
+        {
+            // Transform matrix for crop volume.
+            type : float4x4,
+            name : transformLocalToCrop,
+        }
+    ],
+    constants : [
+        {
+            // Indicates whether this material is using an external texture.
+            name : isExternal,
+            type : bool
+        },
+        {
+            name : isColorSpaceLinearSRGB,
+            type : bool,
+            default : true
+        },
+        {
+            name : isColorSpaceBT2020,
+            type : bool,
+        },
+        {
+            name : isTransferLinear,
+            type : bool,
+            default : true
+        },
+        {
+            name : isTransferST2084,
+            type : bool,
+        },
+        {
+            type : float,
+            name : smoothingDistance,
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    variables : [
+        inCropVolume
+    ],
+    flipUV : true,
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    depthWrite : false,
+}
+
+vertex {
+#include "volume_crop.glsl"
+    void materialVertex(inout MaterialVertexInputs material) {
+        if (materialParams.enableCrop) {
+            material.inCropVolume =
+                    vec4(inCropVolume(materialParams.transformLocalToCrop,
+                                      materialParams.cropHalfExtents, getPosition().xyz),
+                         0);
+        }
+    }
+}
+
+fragment {
+#include "dataspace_support.glsl"
+#include "volume_crop.glsl"
+// The sdf shader library currently lives outside Spaceflinger under native_soong/data/panels,
+// leading to a direct dependency on 3D SysUI.
+#include "sdf.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        // uv coordinates (and related variables) should always use high-precision
+        // floats, or they may suffer from artifacts in sampling (e.g. shimmering
+        // textures).
+        highp vec2 uv = getUV0();
+
+        // TODO(b/328121425): when the user is behind the panel, the panels
+        // will still look like they are facing towards the user. We should use
+        // a different behavior to reduce confusion (e.g. flip uv; replace
+        // the real panel with a semi-transparent decoy panel).
+
+        highp vec3 uv3d = vec3(uv.x, uv.y, 1.0);
+        highp vec4 uv3d_transformed = mulMat4x4Float3(materialParams.uvTransform, uv3d);
+        highp vec2 texture_pos = vec2(uv3d_transformed.x, uv3d_transformed.y);
+        vec4 color;
+        if (materialParams.isSolidColorQuad) {
+            color = materialParams.solidColor;
+        } else if (materialConstants_isExternal) {
+            color = texture(materialParams_androidViewTextureExternal, texture_pos);
+        } else {
+            color = texture(materialParams_androidViewTexture, texture_pos);
+        }
+
+        float cropVolumeAlpha =
+                (materialParams.enableCrop ? cropAlpha(variable_inCropVolume.xyz) : 1.0f);
+
+        // Rounded Corner
+        float quadDist = roundedCornerQuadSdf(getUV0(), materialParams.size, materialParams.cornerRadius);
+        // Mask out corners via smoothstep to prevent aliasing.
+        float roundedCornerAlpha = 1.0 - smoothstep(-materialConstants_smoothingDistance, 0.0, quadDist);
+
+        highp vec3 rgb = convertColor(color.rgb);
+        material.baseColor = vec4(rgb, color.a) * materialParams.globalAlpha *
+                materialParams.overlapFadeAlpha * cropVolumeAlpha * roundedCornerAlpha;
+    }
+}

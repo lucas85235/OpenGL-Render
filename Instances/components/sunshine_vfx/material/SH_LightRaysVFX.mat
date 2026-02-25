@@ -1,0 +1,47 @@
+material {
+    name : "LightRaysVFX",
+    parameters : [
+        { type: float3, name: rayDirection },
+        { type: float4, name: rayColor },
+        { type: float, name: rayFadeSpeed },
+        { type: float, name: rayFadeOffset },
+        { type: sampler2d, name: rayPattern },
+        { type: float2, name: alphaRange }
+    ],
+    requires : [
+        color,
+        uv0
+    ],
+
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        // Ray
+        // Displace vertices using shineDirection according to the UV0
+        material.worldPosition.xyz += mix(vec3(0), materialParams.rayDirection, material.uv0.y);
+    }
+}
+
+fragment {
+    #include "utils.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        vec4 transparentColor = vec4(0);
+        float time = getUserTime().x; // in seconds
+
+        vec4 rayColor = texture(materialParams_rayPattern, getUV0());
+        float mixFactor = sin((getUserTime().x + materialParams.rayFadeOffset) * materialParams.rayFadeSpeed);
+        rayColor.a = rayColor.a * mix(materialParams.alphaRange.x, materialParams.alphaRange.y, mixFactor);
+        rayColor = premultiplyAlpha(rayColor);
+        rayColor.xyz *= materialParams.rayColor.xyz;
+        material.baseColor = rayColor;
+    }
+}

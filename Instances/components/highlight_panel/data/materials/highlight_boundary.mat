@@ -1,0 +1,220 @@
+// A shader that highlights the boundry of a panel.
+
+material {
+    name : "HighlightBoundary",
+    parameters : [
+        // Panel
+        {   type : float4,
+            name : panelColor,
+        },
+        {   type : float4,
+            name : clickedColor,
+        },
+        {   type : float2,
+            name : panelSize,
+        },
+        {   type : float2,
+            name : minMaxPanelToQuadMargin,
+        },
+
+        // Hover / Select
+        {   type : float,
+            name : controlSelectEffect,
+        },
+        {   type : float,
+            name : changeStateLerp,
+        },
+        {   type : float2,
+            name : cursorPosition,
+        },
+        // These variable controls the size of the panel
+        // Can be used dynamically to control the size of the circle proportionally to the panel
+        // or control only the size of the circle without taking into account the proportion
+        // To activate the dynamic proportion mode set UseProportionalCircle to 1 and to disable set useProportionalCircle 0
+        {   type : float,
+            name : proportionalCircleSizeFactor,
+        }, // Circle size or dynamic circle size
+        {   type : float,
+            name : useProportionalCircle,
+        }, // 0 == false / 1 == true
+
+        // Corner
+        {   type : bool,
+            name : isResizable,
+        },
+
+        {   type : int,
+            name : state,
+        },
+        {   type : float,
+            name : cornerRadius,
+        },
+        {   type : float,
+            name : cornerBoundary,
+        },
+        {   type : float,
+            name : lerpTime,
+        },
+        {   type : float,
+            name : borderAlpha,
+        },
+        {   type : float2,
+            name : minMaxBorderThickness,
+        },
+
+        // Click
+        {   type : bool,
+            name : isClicked,
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    culling : none,
+    depthWrite : false,
+    blending : transparent,
+    shadingModel : unlit,
+}
+
+fragment {
+#include "panel_sdf.glsl"
+
+    // These match the enum value in HighlightVisual
+    const int kStateMove = 1;
+    const int kStateResizeTopLeft = 2;
+    const int kStateResizeTopRight = 3;
+    const int kStateResizeBottomLeft = 4;
+    const int kStateResizeBottomRight = 5;
+
+    float cornerAlphaImpl(vec2 corner) {
+        // TODO(chiantiyan): This circle radius is arbitrary. Will need further UX instruction to
+        // decide the final value.
+        highp float panelProportion = min(materialParams.panelSize.x, materialParams.panelSize.y);
+        highp float circle_radius = materialParams.cornerBoundary * panelProportion * 1.5;
+        vec2 uv = getUV0();
+
+        vec2 frag_coord = uv * materialParams.panelSize;
+        float dist_to_center = distance(frag_coord, corner * materialParams.panelSize);
+
+        // TODO(chiantiyan): Alpha amplifier is arbitrary. Needs further UX specs.
+        float corner_alpha = (1.0 - dist_to_center / circle_radius) * 2.0f;
+
+        return step(dist_to_center, circle_radius) * corner_alpha;
+    }
+
+    float cornerAlpha() {
+        if (materialParams.state > 1 && !materialParams.isResizable) {
+            return 1.0;
+        }
+
+        // render right top corner (1, 0)
+        if (materialParams.state == kStateResizeTopRight) {
+            return cornerAlphaImpl(vec2(1.0, 0.0));
+        }
+
+        // render right bot corner (1, 1)
+        if (materialParams.state == kStateResizeBottomRight) {
+            return cornerAlphaImpl(vec2(1.0, 1.0));
+        }
+
+        // render left bot corner (0, 1)
+        if (materialParams.state == kStateResizeBottomLeft) {
+            return cornerAlphaImpl(vec2(0.0, 1.0));
+        }
+
+        // render left top corner (0, 0)
+        if (materialParams.state == kStateResizeTopLeft) {
+            return cornerAlphaImpl(vec2(0.0, 0.0));
+        }
+
+        return 0.0;
+    }
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        float alpha_mask = 0.0;
+
+        if (materialParams.state == kStateMove) {
+            alpha_mask = 1.0;
+        } else {
+            alpha_mask = cornerAlpha();
+        }
+        bool isClicked = materialParams.isClicked;
+        vec2 uv = getUV0() - 0.5;
+        // SysUI version: vec2 uv = getUV0() * vec2(1, -1) + vec2(-0.5, 0.5);
+        vec2 fragmentWorldCoord = uv * materialParams.panelSize;
+        float panelSizeAspect = materialParams.panelSize.x / materialParams.panelSize.y;
+        vec2 mirroredWorldCoord = abs(fragmentWorldCoord);
+        float cornerRadius = materialParams.cornerRadius;
+        float lerp = materialParams.isResizable ? materialParams.lerpTime : 0.0;
+        highp float animationTime = lerp;
+        animationTime = mix(1.0, 0.0, animationTime);
+        float animationSwitchTime = 0.7;
+        float lineTime = inverseLerp(animationTime, animationSwitchTime, 1.0);
+        if (materialParams.state > 1 && materialParams.isResizable) {
+            float maxLineSize = 0.2;
+            lineTime = clamp(lineTime, 0.0, maxLineSize);
+        }
+        vec2 thicknessRange = materialParams.minMaxBorderThickness;
+        float maxLineThickness = (thicknessRange.y) * lerp;
+        maxLineThickness = clamp(maxLineThickness, thicknessRange.x, 1.0);
+        float borderThickness = mix(maxLineThickness, thicknessRange.x, animationTime);
+        float arcTime = inverseLerp(animationTime, 0.0, animationSwitchTime);
+        arcTime = clamp(arcTime, 0.5, 1.0);
+        float panelToQuadMargin = mix(
+                materialParams.minMaxPanelToQuadMargin.y * materialParams.panelSize.y,
+                materialParams.minMaxPanelToQuadMargin.x * materialParams.panelSize.x,
+                animationTime);
+        vec2 panelSize = materialParams.panelSize - (vec2(panelToQuadMargin, panelToQuadMargin) * 2.0);
+
+        // corner clicked
+        if (materialParams.state != kStateMove && materialParams.isResizable && isClicked) {
+            borderThickness = thicknessRange.y * 0.75;
+        }
+
+        float roundedCornerBorderMask = roundedCornerRectBorderMask(mirroredWorldCoord, panelSize * 0.995, cornerRadius, borderThickness * 0.90, lineTime, arcTime) * -1.0;
+        float rounderCornerFillMask = roundedBoxSDF(fragmentWorldCoord, panelSize * 0.5 - cornerRadius, cornerRadius * 0.95) * -1.0;
+        vec4 fragColor = vec4(0.0);
+        vec4 borderColor = vec4(0.0);
+
+        if (rounderCornerFillMask > 0.0) {
+            // Draw rounded panel
+            fragColor = mix(
+                    vec4(materialParams.panelColor.rgb * materialParams.panelColor.a, materialParams.panelColor.a),
+                    vec4(materialParams.clickedColor.rgb * materialParams.clickedColor.a, materialParams.clickedColor.a),
+                    clamp(materialParams.changeStateLerp, 0.0, 1.0)
+            );
+        }
+
+        if (roundedCornerBorderMask > 0.0) {
+            // Draw borders
+            borderColor = vec4(materialParams.panelColor.rgb * materialParams.panelColor.a, materialParams.borderAlpha);
+            // Selected color
+            if ((materialParams.state == kStateMove && isClicked) || materialParams.state > 1)
+            {
+                borderColor = vec4(materialParams.clickedColor.rgb * materialParams.clickedColor.a, materialParams.borderAlpha);
+            }
+            // Remove color when exist a result mask
+            fragColor = vec4(0.0); // Vermelho dentro do quadrado
+        }
+
+        float panelAlpha = mix(materialParams.panelColor.a * alpha_mask, 0.0, lerp);
+        float circleFactor = mix(1.0f, min(materialParams.panelSize.x, materialParams.panelSize.y), materialParams.useProportionalCircle);
+        float circleRadius =  circleFactor * materialParams.proportionalCircleSizeFactor;
+        // Apply highlight to panel area
+        vec4 panel = fragColor * panelAlpha;
+        borderColor = borderColor * alpha_mask;
+        vec4 highlight = hoverAndSelectPanelMask(
+                fragmentWorldCoord,
+                panel,
+                borderColor,
+                materialParams.cursorPosition,
+                materialParams.state == kStateMove && isClicked,
+                lerp,
+                materialParams.controlSelectEffect,
+                materialParams.changeStateLerp,
+                circleRadius);
+        material.baseColor = highlight;
+    }
+}

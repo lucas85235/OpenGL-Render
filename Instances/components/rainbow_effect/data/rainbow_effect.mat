@@ -1,0 +1,150 @@
+material {
+    name : "Rainbow",
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    quality: high,
+    parameters : [
+        { type: sampler2d, name: Tex },
+        { type: sampler2d, name: Texture },
+        { type: int, name: TextureWidth },
+        { type: float3, name: Position },
+        { type: float3, name: Rotation },
+        { type: float, name: RainbowRingsThickness },
+        { type: float, name: RainbowRingsSmoothness },
+        { type: float, name: RainbowRadiusSmoothness },
+        { type: float, name: RainbowStartRenderingAngle },
+        { type: float, name: RainbowEndRenderingAngle },
+        { type: float, name: FadeStartAngle },
+        { type: float, name: FadeEndAngle },
+        { type: float, name: ColorIntensity },
+        { type: float, name: Opacity }
+    ],
+    variables : [
+        alpha,
+        tx
+    ],
+    requires :
+    [
+        uv0,
+        color
+    ]
+}
+
+fragment
+{
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+
+        // -------------------------GENERAL-------------------------
+
+        // rainbow/mask center plateau
+        float center = 0.5;
+
+        float opacity = materialParams.Opacity;
+
+        float colorIntensity = materialParams.ColorIntensity;
+
+        // -------------------------RAINBOW-------------------------
+
+        // rainbow setup
+        vec2 uv_rainbow = getUV0();
+        uv_rainbow -= center;
+
+        // rainbow's radius
+        float radius = length(uv_rainbow);
+
+        // rainbow's rings thickness
+        float ringThickness = materialParams.RainbowRingsThickness / 100.00;
+
+        // rings borders smooth
+        float ringSmoothness = materialParams.RainbowRingsSmoothness / 100.00;
+
+        // internal and external rainbow's color rings thickness
+        float violetRingInnerRadius = 0.3;
+        float violetRingOuterRadius = violetRingInnerRadius + ringThickness;
+        float blueRingInnerRadius = violetRingOuterRadius;
+        float blueRingOuterRadius = blueRingInnerRadius + ringThickness;
+        float cyanRingInnerRadius = blueRingOuterRadius;
+        float cyanRingOuterRadius = cyanRingInnerRadius + ringThickness;
+        float greenRingInnerRadius = cyanRingOuterRadius;
+        float greenRingOuterRadius = greenRingInnerRadius + ringThickness;
+        float yellowRingInnerRadius = greenRingOuterRadius;
+        float yellowRingOuterRadius = yellowRingInnerRadius + ringThickness;
+        float orangeRingInnerRadius = yellowRingOuterRadius;
+        float orangeRingOuterRadius = orangeRingInnerRadius + ringThickness;
+        float redRingInnerRadius = orangeRingOuterRadius;
+        float redRingOuterRadius = redRingInnerRadius + ringThickness;
+
+        float redRing = smoothstep(redRingInnerRadius - ringSmoothness, redRingInnerRadius + ringSmoothness, radius) -
+                            smoothstep(redRingOuterRadius - ringSmoothness, redRingOuterRadius + ringSmoothness, radius);
+        float orangeRing = smoothstep(orangeRingInnerRadius - ringSmoothness, orangeRingInnerRadius + ringSmoothness, radius) -
+                               smoothstep(orangeRingOuterRadius - ringSmoothness, orangeRingOuterRadius + ringSmoothness, radius);
+        float yellowRing = smoothstep(yellowRingInnerRadius - ringSmoothness, yellowRingInnerRadius + ringSmoothness, radius) -
+                               smoothstep(yellowRingOuterRadius - ringSmoothness, yellowRingOuterRadius + ringSmoothness, radius);
+        float greenRing = smoothstep(greenRingInnerRadius - ringSmoothness, greenRingInnerRadius + ringSmoothness, radius) -
+                              smoothstep(greenRingOuterRadius - ringSmoothness, greenRingOuterRadius + ringSmoothness, radius);
+        float cyanRing = smoothstep(cyanRingInnerRadius - ringSmoothness, cyanRingInnerRadius + ringSmoothness, radius) -
+                             smoothstep(cyanRingOuterRadius - ringSmoothness, cyanRingOuterRadius + ringSmoothness, radius);
+        float blueRing = smoothstep(blueRingInnerRadius - ringSmoothness, blueRingInnerRadius + ringSmoothness, radius) -
+                             smoothstep(blueRingOuterRadius - ringSmoothness, blueRingOuterRadius + ringSmoothness, radius);
+        float violetRing = smoothstep(violetRingInnerRadius - ringSmoothness, violetRingInnerRadius + ringSmoothness, radius) -
+                               smoothstep(violetRingOuterRadius - ringSmoothness, violetRingOuterRadius + ringSmoothness, radius);
+
+        // -------------------------FADE MASK-------------------------
+
+        // fade mask setup
+        vec2 uv_fade = getUV0();
+        uv_fade -= center;
+
+        // getting external and internal radius start
+        float externalRadius = redRingOuterRadius;
+        float internalRadius = violetRingInnerRadius;
+
+        // fade mask thickness smooth
+        float fadeMaskThicknessSmooth = materialParams.RainbowRadiusSmoothness / 70.00;
+
+        // fade mask start (right side) and end (left side) of the rainbow (0.0 to 1.0 generates a semi-circle)
+        float fadeStartAngle = 3.14 * materialParams.RainbowStartRenderingAngle;
+        float fadeEndAngle = 3.14 * materialParams.RainbowEndRenderingAngle;
+
+        // smoothness start (right side) and end (left side) of the rainbow
+        float angleStartFadeSmooth = materialParams.FadeStartAngle;
+        float angleEndFadeSmooth = materialParams.FadeEndAngle;
+
+        float dist = length(uv_fade);
+        float angle = atan(uv_fade.y, uv_fade.x);
+        internalRadius = clamp(0.0, externalRadius, internalRadius);
+
+        if (angle < 0.0) angle += 2.0 * PI;
+
+        float inRadius = smoothstep(internalRadius, internalRadius + fadeMaskThicknessSmooth, dist);
+        float outRadius = smoothstep(externalRadius, externalRadius - fadeMaskThicknessSmooth, dist);
+        float inAngle = smoothstep(fadeStartAngle, fadeStartAngle + angleStartFadeSmooth, angle);
+        float outAngle = smoothstep(fadeEndAngle, fadeEndAngle - angleEndFadeSmooth, angle);
+        float ring = inRadius * outRadius * inAngle * outAngle;
+        vec3 fade = mix(vec3(0.0), vec3(1.0), ring);
+
+        // -------------------------OUTPUT-------------------------
+
+        // rainbow final colors
+        vec3 rainbow = vec3(
+            violetRing * vec3(0.5, 0.0, 1.0) +
+            blueRing * vec3(0.0, 0.0, 1.0) +
+            cyanRing * vec3(0.0, 1.0, 1.0) +
+            greenRing * vec3(0.0, 1.0, 0.0) +
+            yellowRing * vec3(1.0, 1.0, 0.0) +
+            orangeRing * vec3(1.0, 0.5, 0.0) +
+            redRing * vec3(1.0, 0.0, 0.0));
+
+        fade *= opacity;
+
+        // float alpha = fade.r * materialParams.ColorIntensity;
+        float alpha = fade.r;
+
+        rainbow = clamp(vec3(0.0), vec3(1.0), rainbow * inverseTonemap(vec3(alpha)));
+
+        material.baseColor = vec4(rainbow , alpha);
+    }
+}

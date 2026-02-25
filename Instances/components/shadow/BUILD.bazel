@@ -1,0 +1,28 @@
+load("@com_google_impress//build_tools:imp.bzl",  "if_desktop", "imp_default_jni_linkopts", "imp_google3_copts", "if_android")
+load("@com_google_impress//build_tools:assets.bzl", "imp_assets")
+
+package(
+    default_applicable_licenses = [],
+    default_visibility = [
+        "//visibility:public",
+    ],
+    features = [
+        "-use_header_modules",  # Incompatible with -std=c++14.
+    ],
+)
+
+cc_library(
+    name = "shadow_controller",
+    srcs = [
+        "shadow_controller.cc",
+    ],
+    hdrs = [
+        "shadow_controller.h",
+    ],
+    copts = imp_google3_copts(),
+    deps = [
+        "//native/components/tag:tag",
+        "@com_google_impress//core/geometry:geometry",
+        "@com_google_impress//:api",
+    ],
+)

@@ -1,0 +1,80 @@
+material {
+    parameters :
+    [
+        { type : sampler2d, name : BaseTexture },
+        { type : sampler2d, name : Mask },
+        { type : float4, name : BaseColor },
+        { type : float3, name : Velocity },
+        { type : float, name : Life },
+        { type : float, name : CurrentTime },
+        { type : float, name : CurrentCycleTime },
+        { type : float, name : VelocityMultiplier },
+        { type: float, name: Mass },
+        { type: float, name: GravityFactor },
+        { type: float, name: InitialScale },
+        { type: float, name: FinalScale }
+    ],
+    requires :
+    [
+        uv0,
+        color,
+        position
+    ],
+
+    name : "MT_SandWindParticles",
+    blending : transparent,
+    shadingModel : unlit,
+    depthWrite: false,
+}
+
+vertex
+{
+    #include "movement.glsl"
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        // Calculate vertex position
+        float3 position = getPosition().xyz;
+        highp float time = getUserTime().x;
+
+        vec3 initial_scale = vec3(materialParams.InitialScale);
+        vec3 target_scale = vec3(materialParams.FinalScale);
+
+        // scale over lifetime
+        vec3 currentScale = mix(initial_scale, target_scale, saturate(materialParams.CurrentTime / materialParams.Life));
+
+        position = MRU(position, materialParams.Velocity, materialParams.CurrentTime);
+        material.worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position * currentScale);
+    }
+}
+
+fragment
+{
+    #include "colorUtils.glsl"
+
+    void material(inout MaterialInputs material)
+    {
+        prepareMaterial(material);
+        highp vec2 uv = getUV0();
+
+        vec4 particle_color = texture(materialParams_BaseTexture, uv);
+        particle_color *= materialParams.BaseColor;
+        vec4 transparent = vec4(0);
+
+        // Fade in/out with transparent ends
+        /**particle_color = colorOverLifeTimeFract3(
+                transparent,
+                0.15,
+                particle_color,
+                vec2(0.45, 0.55),
+                transparent,
+                0.95,
+                materialParams.CurrentTime,
+                materialParams.Life);*/
+
+        float alpha_blend = alphaBlend(materialParams.CurrentTime, materialParams.Life - 4.0, 0.8);
+        float alpha_mask = texture(materialParams_Mask, uv).r;
+        float finalAlpha = particle_color.a * alpha_mask * materialParams.BaseColor.a * alpha_blend;
+        material.baseColor = vec4(particle_color.rgb * finalAlpha, finalAlpha);
+    }
+}

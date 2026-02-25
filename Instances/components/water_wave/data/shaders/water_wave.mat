@@ -1,0 +1,121 @@
+material {
+    name : "Water Wave",
+    parameters : [
+        { type : samplerCubemap, name : SkyBoxCube },
+        { type: sampler2d, name: Texture },
+        { type: int, name: TextureWidth },
+        { type: float, name: Velocity },
+        { type: float, name: Radius },
+        { type: float, name: Frequency },
+        { type: float, name: Amplitude },
+        { type: float, name: Scale }
+    ],
+    requires : [
+        uv0,
+        tangents
+    ],
+    vertexDomain : object,
+    shadingModel : unlit,
+    blending : transparent,
+    quality : high,
+    culling : back,
+    doubleSided : true
+}
+
+fragment {
+
+    // ***** functions for water reflection *****
+    float Fresnel_Effect(float exp) {
+        vec3 normal = getWorldGeometricNormalVector(); // already normalized in vertex shader
+        vec3 viewDir = getWorldViewVector(); // normalize(getWorldCameraPosition() - getWorldPosition());
+
+        // float ndotv = getNdotV(); // can't use before prepareMaterial()
+        float ndotv = saturate(dot(normal, viewDir));
+        return pow(1.0 - ndotv, exp);
+    }
+    vec3 NormalStrength(vec3 In, float Strength) {
+        return vec3(In.rg * Strength, mix(1.0, In.b, saturate(Strength)));
+    }
+    float rgb2luma(vec3 rgb){
+        return sqrt(dot(rgb, vec3(0.299, 0.587, 0.114)));
+    }
+
+    // ***** functions for wave on water ****
+    highp float RippleEffect(highp float dist, highp float amplitude, highp float frequency, highp float time) {
+        highp float ripple = amplitude * sin(dist * 6.28 * frequency - time);
+        return ripple;
+    }
+    vec4 getPixelValue(float x, float y) {
+        int textureWidth = materialParams.TextureWidth;
+
+        // Calculate normalized texture coordinates
+        float u = (x + 0.5) / float(textureWidth);
+        float v = (y + 0.5) / float(textureWidth);
+
+        vec4 texValue = texture(materialParams_Texture, vec2(u, v));
+        return texValue;
+    }
+
+    void material(inout MaterialInputs material) {
+
+        vec3 blended = vec3(0.,0.5,0.);
+        float minusFresnel = 1.0 - Fresnel_Effect(0.04);
+        vec3 normalStrength = NormalStrength(blended, minusFresnel);
+        material.normal = normalStrength;
+
+        prepareMaterial(material);
+
+        highp float gridWidth = float(materialParams.TextureWidth);
+        highp float cellWidth = 1./(gridWidth);
+        highp float halfCellWidth = 1./(gridWidth)*0.5;
+
+        vec2 grid = floor(getUV0()*gridWidth);
+
+        float v = materialParams.Velocity;
+        float r = materialParams.Radius;
+        float f = materialParams.Frequency;
+        float a = materialParams.Amplitude;
+        float scale = materialParams.Scale;
+
+        float totalTime = r / v * 100.;
+        highp vec3 wave = vec3(0.);
+
+        // 3 x 3 by neighbors
+        for(int i = -1; i <= 1; i++) {
+            for(int j = -1; j <= 1; j++) {
+
+                highp vec4 p = getPixelValue(grid.x +float(i) , grid.y + float(j));
+                highp vec2 gridCenter = getUV0() - (vec2(grid.x+float(i), grid.y+float(j))*cellWidth + halfCellWidth);
+                highp float currentTime = mod(getUserTime().x * p.y, totalTime);
+                highp vec2 waveCenter = (gridCenter*scale - p.xz * sin(floor(getUserTime().x * p.y / totalTime)));
+
+                highp float dist = length(waveCenter);
+
+                // wave function
+                highp float intensityWave = RippleEffect(dist, a, f, currentTime*v);
+                // limit by radius
+                intensityWave*=smoothstep(r, 0., dist );
+                // limit by totalTime
+                intensityWave*=smoothstep(totalTime, 0., currentTime );
+
+                highp vec2 w = waveCenter*intensityWave;
+                wave += vec3(w.x, 0., w.y);
+            }
+        }
+
+        // Reflection + Wave texture
+        vec3 reflectionTexture = texture(materialParams_SkyBoxCube, getWorldReflectedVector() + wave).rgb;
+
+        // Alpha
+        highp vec4 alpha_step_u = vec4(0., 0.9, 0.95, 1.);
+        highp vec4 alpha_step_v = vec4(0., 0.8, 0.85, 1.);
+        float alpha_step_multiplier = 1.0;
+        float alpha_u = smoothstep(alpha_step_u.x, alpha_step_u.y, getUV0().x)
+                 * (1.0 - smoothstep(alpha_step_u.z, alpha_step_u.w, getUV0()).x);
+        float alpha_v = smoothstep(alpha_step_v.x, alpha_step_v.y, getUV0().y)
+                 * (1.0 - smoothstep(alpha_step_v.z, alpha_step_v.w, getUV0().y));
+        float waterAlpha = (alpha_u * alpha_v)*alpha_step_multiplier;
+
+        material.baseColor = float4(reflectionTexture*waterAlpha, waterAlpha);
+    }
+}

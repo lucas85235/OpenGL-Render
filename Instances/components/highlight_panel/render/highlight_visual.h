@@ -1,0 +1,45 @@
+#pragma once
+
+#include "imp.h"
+
+#include "core/animation/property_animator.h"
+#include "core/ncsb/node_handle.h"
+#include "proto/components/highlight_visual_state.proto.imp.h"
+
+namespace ix::samsung::homecomponents {
+
+// Component that renders the move and resize boundary around the panel.
+class HighlightVisual : public imp::Component {
+public:
+    // Give the parameter a defualt value so it can be registered with the SceneSystem.
+    void Setup(const imp::float2& panel_size_meters = imp::kZero2);
+    void Update(const imp::FrameTime& frame_time);
+
+    // Setting a new RenderState will fade out the current RenderState and fade in the new one. If
+    // the new RenderState is NONE and we skip the fade-in. If the highlight is currently disabled,
+    // we skip the fade-out. This function can safely be called mid fade animations.
+    void SetHighlightState(HighlightVisualState::RenderState render_state);
+    float GetHighlightBoundaryWidth();
+
+    void UpdateSize(const imp::float2& new_size_meters);
+
+private:
+    imp::Future<absl::Status> FadeIn();
+    imp::Future<absl::Status> FadeOut();
+    std::unique_ptr<imp::PropertyAnimation> CreateFadeAnimation(float target_alpha);
+
+    imp::ComponentHandle<imp::RenderComponent> highlight_render_;
+    imp::Material* material_;
+    float current_alpha_ = 0.0f;
+
+    imp::ComponentHandle<imp::PropertyAnimator> animator_;
+    std::unique_ptr<imp::PropertyAnimation> fadeout_animation_;
+    std::unique_ptr<imp::PropertyAnimation> fadein_animation_;
+
+    HighlightVisualState state_;
+
+public:
+    using IsfInfo = imp::IsfInfo<&HighlightVisual::state_>;
+};
+
+} // namespace ix::samsung::homecomponents

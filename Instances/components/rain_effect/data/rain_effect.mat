@@ -1,0 +1,96 @@
+material {
+    name : "White",
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    instanced : true,
+    quality: high,
+    parameters : [
+        { type: sampler2d, name: Tex },
+        { type: int, name: TextureWidth },
+        { type: int, name: Amount },
+        { type: float2, name: Velocity},
+        { type: float2, name: Size},
+        { type: float, name: Radius},
+        { type: int, name: Angle},
+        { type: bool, name: Center}
+    ],
+    variables : [
+        alpha,
+        time
+    ],
+    requires :
+    [
+        uv0,
+        color
+    ]
+}
+
+vertex
+{
+    #include "getPixel.glsl"
+
+    vec4 RotationXYZ(vec4 pos, float velocity, float iTime) {
+
+        vec4 vertexPosition = pos;
+        float angle = velocity * 0.2;
+
+        float cz = cos(angle);
+        float sz = sin(angle);
+
+        vertexPosition *= mat4(
+            cz,  sz,  0.0, 0.0,
+            -sz, cz,  0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0
+        );
+
+        return vertexPosition;
+    }
+
+    void materialVertex(inout MaterialVertexInputs material)
+    {
+        highp float radius = materialParams.Radius;
+        highp float4 position = getPosition();
+        highp float deltaTime = getUserTime().x;
+        highp float period = 2.0;
+
+        deltaTime = mod(max(deltaTime - float(getInstanceIndex()) / (float(materialParams.Amount) / 10.0),0.0), 2.0 + 0.1);
+        position.xyz *= vec3(materialParams.Size.x);
+
+        bool spawn = float(getInstanceIndex()) / float(materialParams.Amount) > deltaTime;
+        material.alpha.x = mix(1.0, 0.0, spawn);
+
+        highp vec3 dpos = (getPixelValue(getInstanceIndex(), materialParams.TextureWidth).rgb);
+        dpos.x = mix(-1.0, 1.0, dpos.x);
+        dpos.y = mix(-1.0, 1.0, dpos.y);
+        dpos.z = mix(-1.0, 1.0, dpos.z);
+
+        highp float height = materialParams.Velocity.x * period;
+        if (materialParams.Center) {
+            height += 5.0;
+        }
+
+        position.x += (float(materialParams.Angle) * period) + dpos.x * radius - deltaTime * float(materialParams.Angle);
+        position.y += dpos.y + height - deltaTime * materialParams.Velocity.x;
+        position.z += dpos.z * radius;
+
+        position = RotationXYZ(position, float(materialParams.Angle), deltaTime);
+
+        highp float4 worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position.xyz);
+
+        material.worldPosition = worldPosition;
+    }
+}
+
+fragment
+{
+    #include "getPixel.glsl"
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        float alpha = 0.2 * variable_alpha.x;
+        material.baseColor = vec4(inverseTonemapSRGB(vec3(0.5)) * alpha, alpha);
+    }
+}

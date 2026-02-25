@@ -1,0 +1,164 @@
+material {
+    name : "White",
+    blending : transparent,
+    shadingModel : unlit,
+    culling : none,
+    instanced : true,
+    depthWrite : true,
+    parameters : [
+        { type: sampler2d, name: Tex },
+        { type: sampler2d, name: Texture },
+        { type: int, name: TextureWidth },
+        { type: int, name: Amount },
+
+        { type: sampler2d, name: Grass2 },
+        { type: sampler2d, name: Mask },
+        { type: float4, name: GrassColor1 },
+        { type: float4, name: GrassColor2 },
+
+        { type: int, name: Angle },
+        { type: float, name: WindFrequency },
+        { type: float, name: WaveSize },
+
+        { type: float, name: LodMinDistance },
+        { type: float, name: LodMaxDistance }
+    ],
+    requires : [
+        uv0
+    ],
+    variables : [
+        distance,
+        color
+    ]
+}
+
+vertex
+{
+    #include "getPixel.glsl"
+
+    vec4 RotationY(float angle, vec4 pos)
+    {
+        vec4 vertexPosition = pos;
+        float cy = cos(angle);
+        float sy = sin(angle);
+
+        vertexPosition *= mat4
+        (
+            cy,  0.0, sy,  0.0,
+            0.0, 1.0, 0.0, 0.0,
+            -sy, 0.0, cy,  0.0,
+            0.0, 0.0, 0.0, 1.0
+        );
+
+        return vertexPosition;
+    }
+
+    float hash21(vec2 n, float index, highp float amount) {
+        index = index/amount;
+        float phase = index * 2.0 * 3.1415;
+        return (sin(n.x * n.y * phase) + 1.0) / 2.0;
+    }
+
+    // Simplex-style Perlin Noise 2D (otimizado)
+    vec2 hash(vec2 p) {
+        p = vec2(dot(p, vec2(127.1, 311.7)),
+                 dot(p, vec2(269.5, 183.3)));
+        return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+    }
+
+    float perlinNoise(vec2 p) {
+        vec2 pi = floor(p);
+        vec2 pf = fract(p);
+
+        vec2 w = pf * pf * (3.0 - 2.0 * pf); // Suavização
+
+        vec2 g00 = hash(pi + vec2(0.0, 0.0));
+        vec2 g10 = hash(pi + vec2(1.0, 0.0));
+        vec2 g01 = hash(pi + vec2(0.0, 1.0));
+        vec2 g11 = hash(pi + vec2(1.0, 1.0));
+
+        float n00 = dot(g00, pf - vec2(0.0, 0.0));
+        float n10 = dot(g10, pf - vec2(1.0, 0.0));
+        float n01 = dot(g01, pf - vec2(0.0, 1.0));
+        float n11 = dot(g11, pf - vec2(1.0, 1.0));
+
+        return mix(mix(n00, n10, w.x), mix(n01, n11, w.x), w.y);
+    }
+
+void materialVertex(inout MaterialVertexInputs material)
+    {
+        float indexF = float(getInstanceIndex() + 1);
+        float random = hash21(vec2(indexF), indexF, 11.0);
+        float time = getUserTime().x + cos(indexF);
+        vec4 position = getPosition();
+
+        vec4 dpos = getPixelValue(getInstanceIndex(), materialParams.TextureWidth);
+        dpos.x = mix(-1.0, 1.0, dpos.x);
+        dpos.y = mix(-1.0, 1.0, dpos.y);
+        dpos.z = mix(-1.0, 1.0, dpos.z);
+
+        // Scale
+        float scaleDist = distance(vec4(0.0), dpos) / 30.0;
+        float distanceDecrease = mix(0.5, 1.0, scaleDist);
+        float scaleDecrease = mix(0.85, 1.1, random * distanceDecrease);
+        position.xyz *= scaleDecrease;
+
+        // Rotation
+        position.xyz = RotationY(dpos.a, vec4(position.xyz, 1.0)).xyz;
+
+        // Waves
+        float r = getUserTime().x * 0.05;
+        float n = (sin(getUserTime().x) + 1.0) / 2.0;
+
+        material.color.x = perlinNoise(position.xz + (getUserTime().x * 0.25));
+        float noise = material.color.x;
+
+        // Calculate Wind
+        float yAmplitude = 0.2;
+        float frassMinY = 0.0, frassMaxY = 1.0;
+        float waveAmplitude = clamp((position.y - frassMinY) / (frassMaxY - frassMinY), 0.0, 1.0);
+        float windX = sin((position.y + noise) * (materialParams.WindFrequency)) * waveAmplitude;
+        // float windX = sin((position.y + time + random) * 1.0) * waveAmplitude;
+
+        float windY = sin((position.x + time + random) * materialParams.WindFrequency) * waveAmplitude * yAmplitude;
+        float windNormalized = (windX + 1.0) / 2.0;
+        // windNormalized += mix(0.0, 1.0, material.color.x);
+
+        // Apply Wind
+        position.x += mix(-1.0 * materialParams.WaveSize, 1.0 * materialParams.WaveSize, windNormalized);
+        // position.y += windY;
+
+        // Position
+        position.x += dpos.x;
+        position.y += dpos.y - (1.0 - scaleDecrease);
+        position.z += dpos.z;
+
+        // Calculate position matrix
+        vec4 worldPosition = mulMat4x4Float3(getWorldFromModelMatrix(), position.xyz);
+        material.worldPosition = worldPosition;
+        vec3 cameraPosition = getWorldCameraPosition();
+
+        float dist = distance(worldPosition.xyz, cameraPosition);
+        float normalizedDistance = clamp((dist - materialParams.LodMinDistance) / (materialParams.LodMaxDistance - materialParams.LodMinDistance), 0.0, 1.0);
+        material.distance = vec4(normalizedDistance, 0.0, 0.0, 0.0);
+    }
+}
+
+fragment
+{
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        vec4 tex;
+        if (getInstanceIndex() % 2 == 0)
+            tex = textureLod(materialParams_Texture, getUV0(), mix(0.0, 3.0, variable_distance.x));
+        else tex = textureLod(materialParams_Grass2, getUV0(), mix(0.0, 3.0, variable_distance.x));
+
+        if (tex.a <= 0.4)
+            discard;
+
+        tex *= mix(materialParams.GrassColor2, materialParams.GrassColor1, tex);
+        // tex *= vec4(vec3(variable_color.x), 1.0);
+        material.baseColor = vec4(tex.rgb * tex.a, tex.a);
+    }
+}

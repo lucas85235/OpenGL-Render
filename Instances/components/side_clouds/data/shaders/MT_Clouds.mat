@@ -1,0 +1,75 @@
+material {
+    name : "MT_Clouds",
+    parameters : [
+        { type: sampler2d, name: Noise },
+        { type: sampler2d, name: Animation }, // todo: remove
+        { type: float4, name: Color },
+        { type: float, name: Density  },
+        { type: float, name: Velocity },
+        { type: float, name: SmallCloudsSpeed }, // todo: remove
+        { type: int, name: Samples  }
+    ],
+    requires : [
+        uv0
+    ],
+    vertexDomain : object,
+    blending : transparent,
+    shadingModel : unlit,
+    flipUV : false,
+    quality : low,
+}
+
+fragment {
+    highp vec2 tilingAndOffset(highp vec2 uv, highp vec2 tiling, highp vec2 offset) {
+        return fract((uv + offset) * tiling);
+    }
+
+    highp float sampleNoise(highp vec2 uv, highp float offset, float initial_time) {
+        highp float time = getUserTime().x * offset * materialParams.Velocity;
+        highp vec2 tiling = vec2(1.0);
+        uv.y += 0.075;
+
+        highp vec2 uv1 = vec2(
+            uv.x * initial_time + (time + 0.5),
+            uv.y + (sin(time + 0.5) * 0.1));
+        highp vec2 uv2 = vec2(
+            uv.x * initial_time + ((time * 0.9 + 0.5) * 0.1),
+            uv.y + (sin(time * 0.9 + 0.5)));
+
+        highp float noise = texture(materialParams_Noise, tilingAndOffset(uv, tiling, uv1)).a;
+        noise += texture(materialParams_Noise, tilingAndOffset(uv, tiling, uv2)).a * 0.8;
+        return noise * 0.5;
+    }
+
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        highp vec2 uv = getUV0();
+        if (uv.y > 0.3) {
+            discard;
+        }
+
+        // Create multiple layer to create volumetric effect
+        highp float density = 0.0;
+        for (int i = 1; i <= materialParams.Samples; i++) {
+            density += sampleNoise(uv, float(i) * 0.01, float(i)) / (float(materialParams.Samples));
+        }
+
+        // Adjust clouds density
+        density *= materialParams.Density;   
+
+        // Paint clouds
+        highp vec4 cloudColor = vec4(1.0);
+        highp vec4 skyColor = vec4(0.0);
+        highp vec4 finalColor = mix(skyColor, cloudColor, clamp(abs(density), 0.0, 1.0)) * materialParams.Color;
+
+        highp float alpha_mask = smoothstep(0.0, 0.15, uv.y);
+        highp float final_alpha = finalColor.a * alpha_mask;
+
+        // Remove smoke clouds
+        finalColor.rgb = smoothstep(vec3(0.01), vec3(0.5), finalColor.rgb * alpha_mask);
+
+        // Fragment final color
+        material.baseColor = vec4(finalColor.rgb * final_alpha, final_alpha);
+    }
+}
