@@ -68,7 +68,7 @@ find_package(Threads REQUIRED)
 # ==========================================
 # Download Automático do stb_image.h
 # ==========================================
-set(STB_IMAGE_PATH "${CMAKE_SOURCE_DIR}/src/renderer/stb_image.h")
+set(STB_IMAGE_PATH "${CMAKE_SOURCE_DIR}/src/vendor/stb_image.h")
 if(NOT EXISTS ${STB_IMAGE_PATH})
     message(STATUS "stb_image.h não encontrado. Baixando...")
     file(DOWNLOAD 

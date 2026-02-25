@@ -8,7 +8,7 @@
 #include <string>
 
 #include "../core/vfs/file_system.hpp"
-#include "stb_image.h"
+#include "../vendor/stb_image.h"
 
 enum class TextureType {
   DIFFUSE,
