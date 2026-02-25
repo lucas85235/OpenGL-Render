@@ -1,4 +1,5 @@
 #include "vulkan_device.hpp"
+#include "imgui_impl_vulkan.h"
 #include <cmath>
 #include <fstream>
 
@@ -1819,19 +1820,30 @@ uint64_t VulkanDevice::GetNativeTextureID(TextureHandle texture) const {
 }
 
 void VulkanDevice::InitImGui(void *window) {
-  // Vulkan ImGui backend init would go here
+  ImGui_ImplVulkan_InitInfo init_info = {};
+  init_info.Instance = instance;
+  init_info.PhysicalDevice = physicalDevice;
+  init_info.Device = device;
+  QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+  init_info.QueueFamily = indices.graphicsFamily.value();
+  init_info.Queue = graphicsQueue;
+  init_info.DescriptorPoolSize = 1000;
+  init_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
+  init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
+  init_info.PipelineInfoMain.RenderPass = renderPass;
+  init_info.PipelineInfoMain.Subpass = 0;
+  init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+  ImGui_ImplVulkan_Init(&init_info);
 }
 
-void VulkanDevice::ShutdownImGui() {
-  // Vulkan ImGui backend shutdown would go here
-}
+void VulkanDevice::ShutdownImGui() { ImGui_ImplVulkan_Shutdown(); }
 
-void VulkanDevice::NewFrameImGui() {
-  // Vulkan ImGui new frame
-}
+void VulkanDevice::NewFrameImGui() { ImGui_ImplVulkan_NewFrame(); }
 
 void VulkanDevice::RenderImGui() {
-  // Vulkan ImGui render
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
+                                  commandBuffers[currentFrame], VK_NULL_HANDLE);
 }
 
 SamplerHandle VulkanDevice::CreateSampler(const SamplerDescriptor &desc) {

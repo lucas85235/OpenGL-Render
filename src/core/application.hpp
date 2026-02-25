@@ -5,6 +5,8 @@
 #include <memory>
 #include <vector>
 
+#include "window.hpp"
+
 #include "../editor/console_panel.hpp"
 #include "../editor/editor_ui.hpp"
 #include "../editor/example_panel.hpp"
@@ -19,7 +21,6 @@
 #include "../scene/components.hpp"
 #include "camera.hpp"
 #include "vfs/native_file_system.hpp"
-#include "window.hpp"
 
 class Application {
 private:
@@ -102,7 +103,7 @@ private:
   float lastFrame = 0.0f;
 
   bool InitInternal() {
-    RHI::API api = RHI::API::OpenGL;
+    RHI::API api = RHI::API::Vulkan;
 
     bool createGLContext = (api == RHI::API::OpenGL);
     if (!window->Init(createGLContext))
