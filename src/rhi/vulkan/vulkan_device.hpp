@@ -11,6 +11,8 @@
 #include <optional>
 #include <set>
 #include <vector>
+#include <unordered_map>
+#include <array>
 
 namespace RHI {
 

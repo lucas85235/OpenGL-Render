@@ -103,7 +103,7 @@ private:
   float lastFrame = 0.0f;
 
   bool InitInternal() {
-    RHI::API api = RHI::API::Vulkan;
+    RHI::API api = RHI::API::OpenGL;
 
     bool createGLContext = (api == RHI::API::OpenGL);
     if (!window->Init(createGLContext))
