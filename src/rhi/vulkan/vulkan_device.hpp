@@ -58,6 +58,7 @@ struct VulkanTexture {
   uint32_t width, height, depth;
   uint32_t arrayLayers = 1;
   bool isCubemap = false;
+  VkDescriptorSet imguiDescriptorSet = VK_NULL_HANDLE;
 };
 
 struct VulkanSampler {

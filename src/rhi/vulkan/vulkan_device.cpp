@@ -482,7 +482,7 @@ void VulkanDevice::createLogicalDevice() {
 VkSurfaceFormatKHR VulkanDevice::chooseSwapSurfaceFormat(
     const std::vector<VkSurfaceFormatKHR> &formats) {
   for (const auto &format : formats) {
-    if (format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+    if (format.format == VK_FORMAT_B8G8R8A8_UNORM &&
         format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
       return format;
     }
@@ -1801,6 +1801,9 @@ void VulkanDevice::GenerateMipmaps(TextureHandle texture) {
 void VulkanDevice::DestroyTexture(TextureHandle texture) {
   auto it = textures.find(texture.id);
   if (it != textures.end()) {
+    if (it->second.imguiDescriptorSet != VK_NULL_HANDLE) {
+      ImGui_ImplVulkan_RemoveTexture(it->second.imguiDescriptorSet);
+    }
     vkDestroyImageView(device, it->second.imageView, nullptr);
     vkDestroyImage(device, it->second.image, nullptr);
     vkFreeMemory(device, it->second.memory, nullptr);
@@ -1811,10 +1814,13 @@ void VulkanDevice::DestroyTexture(TextureHandle texture) {
 uint64_t VulkanDevice::GetNativeTextureID(TextureHandle texture) const {
   auto it = textures.find(texture.id);
   if (it != textures.end()) {
-    // Return the VkImage directly. This is a 64-bit non-dispatchable handle.
-    // If the application expects an ImGui texture ID (VkDescriptorSet), it
-    // should create it using ImGui_ImplVulkan_AddTexture.
-    return (uint64_t)reinterpret_cast<uintptr_t>(it->second.image);
+    if (it->second.imguiDescriptorSet == VK_NULL_HANDLE) {
+      auto &tex = const_cast<VulkanTexture &>(it->second);
+      tex.imguiDescriptorSet =
+          ImGui_ImplVulkan_AddTexture(dummySampler, tex.imageView,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+    return (uint64_t)reinterpret_cast<uintptr_t>(it->second.imguiDescriptorSet);
   }
   return 0;
 }
