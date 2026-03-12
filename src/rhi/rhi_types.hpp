@@ -287,6 +287,9 @@ struct FramebufferHandle {
 struct VertexArrayHandle {
   uint64_t id = 0;
 };
+struct CommandListHandle {
+  uint64_t id = 0;
+};
 
 inline bool IsValid(BufferHandle h) { return h.id != 0; }
 inline bool IsValid(TextureHandle h) { return h.id != 0; }
@@ -295,6 +298,7 @@ inline bool IsValid(ShaderHandle h) { return h.id != 0; }
 inline bool IsValid(PipelineHandle h) { return h.id != 0; }
 inline bool IsValid(FramebufferHandle h) { return h.id != 0; }
 inline bool IsValid(VertexArrayHandle h) { return h.id != 0; }
+inline bool IsValid(CommandListHandle h) { return h.id != 0; }
 
 // ============================================================================
 // RENDER-TO-TEXTURE SUPPORT
@@ -322,6 +326,17 @@ struct FramebufferDescriptor {
   std::vector<RenderTargetAttachment> colorAttachments;
   RenderTargetAttachment depthAttachment;
   bool hasDepth = false;
+};
+
+struct RenderPassDescriptor {
+  FramebufferHandle framebuffer = {
+      0}; // If ID is 0, points to the backbuffer/swapchain
+  ClearColor clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+  float clearDepth = 1.0f;
+  uint32_t clearStencil = 0;
+  bool clearColorBuffer = true;
+  bool clearDepthBuffer = true;
+  bool clearStencilBuffer = false;
 };
 
 } // namespace RHI

@@ -155,6 +155,11 @@ public:
                          uint32_t height) override;
   void DestroyFramebuffer(FramebufferHandle framebuffer) override;
 
+  CommandListHandle CreateCommandList() override;
+  ICommandList *GetCommandList(CommandListHandle handle) override;
+  void SubmitCommandList(CommandListHandle handle) override;
+  void DestroyCommandList(CommandListHandle handle) override;
+
   void SetViewport(const Viewport &viewport) override;
   void SetScissor(const Scissor &scissor) override;
   void DisableScissor() override;

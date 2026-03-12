@@ -1,6 +1,7 @@
 #ifndef RHI_DEVICE_HPP
 #define RHI_DEVICE_HPP
 
+#include "command_list.hpp"
 #include "rhi_types.hpp"
 #include <memory>
 #include <vector>
@@ -241,7 +242,31 @@ public:
   virtual void DestroyFramebuffer(FramebufferHandle framebuffer) = 0;
 
   // ========================================================================
-  // RENDER STATE
+  // COMMAND LIST MANAGEMENT
+  // ========================================================================
+
+  /**
+   * @brief Creates a command list for recording GPU commands
+   */
+  virtual CommandListHandle CreateCommandList() = 0;
+
+  /**
+   * @brief Retrieves the actual command list interface for a given handle
+   */
+  virtual ICommandList *GetCommandList(CommandListHandle handle) = 0;
+
+  /**
+   * @brief Submits a command list to the GPU queue
+   */
+  virtual void SubmitCommandList(CommandListHandle handle) = 0;
+
+  /**
+   * @brief Destroys a command list
+   */
+  virtual void DestroyCommandList(CommandListHandle handle) = 0;
+
+  // ========================================================================
+  // RENDER STATE (Legacy Immediate Mode - To Be Deprecated)
   // ========================================================================
 
   /**

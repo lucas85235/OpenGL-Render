@@ -1460,3 +1460,12 @@ void OpenGLDevice::RenderImGui() {
 }
 
 } // namespace RHI
+
+namespace RHI {
+CommandListHandle OpenGLDevice::CreateCommandList() { return {0}; }
+ICommandList *OpenGLDevice::GetCommandList(CommandListHandle handle) {
+  return nullptr;
+}
+void OpenGLDevice::SubmitCommandList(CommandListHandle handle) {}
+void OpenGLDevice::DestroyCommandList(CommandListHandle handle) {}
+} // namespace RHI

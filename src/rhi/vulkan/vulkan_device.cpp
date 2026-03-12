@@ -3632,3 +3632,12 @@ void VulkanDevice::cleanupSkyboxResources() {
 }
 
 } // namespace RHI
+
+namespace RHI {
+CommandListHandle VulkanDevice::CreateCommandList() { return {0}; }
+ICommandList *VulkanDevice::GetCommandList(CommandListHandle handle) {
+  return nullptr;
+}
+void VulkanDevice::SubmitCommandList(CommandListHandle handle) {}
+void VulkanDevice::DestroyCommandList(CommandListHandle handle) {}
+} // namespace RHI

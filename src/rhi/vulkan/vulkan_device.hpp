@@ -6,13 +6,13 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <iostream>
 #include <optional>
 #include <set>
-#include <vector>
 #include <unordered_map>
-#include <array>
+#include <vector>
 
 namespace RHI {
 
@@ -325,6 +325,11 @@ public:
   void ResizeFramebuffer(FramebufferHandle framebuffer, uint32_t width,
                          uint32_t height) override;
   void DestroyFramebuffer(FramebufferHandle framebuffer) override;
+
+  CommandListHandle CreateCommandList() override;
+  ICommandList *GetCommandList(CommandListHandle handle) override;
+  void SubmitCommandList(CommandListHandle handle) override;
+  void DestroyCommandList(CommandListHandle handle) override;
 
   void SetViewport(const Viewport &viewport) override;
   void SetScissor(const Scissor &scissor) override;
