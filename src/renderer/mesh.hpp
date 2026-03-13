@@ -81,20 +81,20 @@ public:
     }
   }
 
-  void Draw(RHI::IDevice *dev, RHI::ShaderHandle shader) {
-    if (!dev)
+  void Draw(RHI::ICommandList *cmdList, RHI::ShaderHandle shader) {
+    if (!cmdList)
       return;
 
     if (material) {
-      material->Apply(dev, shader);
+      material->Apply(cmdList, shader);
     }
 
-    dev->BindVertexArray(vao);
+    cmdList->BindVertexArray(vao);
     RHI::DrawIndexedCommand cmd;
     cmd.indexCount = static_cast<uint32_t>(indices.size());
     cmd.instanceCount = 1;
     cmd.indexType = RHI::IndexType::UInt32;
-    dev->DrawIndexed(cmd);
+    cmdList->DrawIndexed(cmd);
   }
 
   RHI::VertexArrayHandle GetVAO() const { return vao; }

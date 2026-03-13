@@ -58,17 +58,6 @@ public:
     return true;
   }
 
-  void Bind() {
-    if (!initialized || !device)
-      return;
-    device->BindFramebuffer(fbo);
-  }
-
-  void Unbind() {
-    if (device)
-      device->BindFramebuffer(RHI::FramebufferHandle{0});
-  }
-
   void Resize(int w, int h) {
     if (!initialized || !device)
       return;

@@ -167,32 +167,30 @@ public:
   void SubmitCommandList(CommandListHandle handle) override;
   void DestroyCommandList(CommandListHandle handle) override;
 
-  void SetViewport(const Viewport &viewport) override;
-  void SetScissor(const Scissor &scissor) override;
-  void DisableScissor() override;
-  void Clear(bool color, bool depth, bool stencil) override;
-  void SetClearColor(const ClearColor &color) override;
-  void SetClearDepth(float depth) override;
+  void SetViewport(const Viewport &viewport);
+  void SetScissor(const Scissor &scissor);
+  void DisableScissor();
+  void Clear(bool color, bool depth, bool stencil);
+  void SetClearColor(const ClearColor &color);
+  void SetClearDepth(float depth);
 
-  void BindPipeline(PipelineHandle pipeline) override;
-  void BindVertexArray(VertexArrayHandle vao) override;
-  void BindFramebuffer(FramebufferHandle framebuffer) override;
-  void BindTexture(uint32_t slot, TextureHandle texture) override;
-  void BindSampler(uint32_t slot, SamplerHandle sampler) override;
+  void BindPipeline(PipelineHandle pipeline);
+  void BindVertexArray(VertexArrayHandle vao);
+  void BindFramebuffer(FramebufferHandle framebuffer);
+  void BindTexture(uint32_t slot, TextureHandle texture);
+  void BindSampler(uint32_t slot, SamplerHandle sampler);
 
+  void SetUniform(ShaderHandle shader, const std::string &name, int value);
+  void SetUniform(ShaderHandle shader, const std::string &name, float value);
   void SetUniform(ShaderHandle shader, const std::string &name,
-                  int value) override;
-  void SetUniform(ShaderHandle shader, const std::string &name,
-                  float value) override;
-  void SetUniform(ShaderHandle shader, const std::string &name,
-                  const float *value, uint32_t count) override;
+                  const float *value, uint32_t count);
   void SetUniformMatrix4(ShaderHandle shader, const std::string &name,
-                         const float *matrix) override;
+                         const float *matrix);
 
-  void Draw(const DrawCommand &cmd) override;
-  void DrawIndexed(const DrawIndexedCommand &cmd) override;
+  void Draw(const DrawCommand &cmd);
+  void DrawIndexed(const DrawIndexedCommand &cmd);
   void DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
-                  const float *viewMatrix, const float *projMatrix) override;
+                  const float *viewMatrix, const float *projMatrix);
 
   void WaitIdle() override;
 

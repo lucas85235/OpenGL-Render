@@ -135,27 +135,21 @@ public:
   bool IsCompiled() const { return compiled; }
   RHI::IDevice *GetDevice() const { return device; }
 
-  void SetBool(const std::string &name, bool value) const {
-    if (activeCmdList && compiled) {
-      activeCmdList->SetUniform(shaderHandle, name, static_cast<int>(value));
-    } else if (device && compiled) {
-      device->SetUniform(shaderHandle, name, static_cast<int>(value));
-    }
-  }
-
   void SetInt(const std::string &name, int value) const {
     if (activeCmdList && compiled) {
       activeCmdList->SetUniform(shaderHandle, name, value);
-    } else if (device && compiled) {
-      device->SetUniform(shaderHandle, name, value);
+    }
+  }
+
+  void SetBool(const std::string &name, bool value) const {
+    if (activeCmdList && compiled) {
+      activeCmdList->SetUniform(shaderHandle, name, static_cast<int>(value));
     }
   }
 
   void SetFloat(const std::string &name, float value) const {
     if (activeCmdList && compiled) {
       activeCmdList->SetUniform(shaderHandle, name, value);
-    } else if (device && compiled) {
-      device->SetUniform(shaderHandle, name, value);
     }
   }
 
@@ -163,25 +157,18 @@ public:
     if (activeCmdList && compiled) {
       float v[3] = {x, y, z};
       activeCmdList->SetUniform(shaderHandle, name, v, 3);
-    } else if (device && compiled) {
-      float v[3] = {x, y, z};
-      device->SetUniform(shaderHandle, name, v, 3);
     }
   }
 
   void SetVec3(const std::string &name, const float *value) const {
     if (activeCmdList && compiled) {
       activeCmdList->SetUniform(shaderHandle, name, value, 3);
-    } else if (device && compiled) {
-      device->SetUniform(shaderHandle, name, value, 3);
     }
   }
 
   void SetMat4(const std::string &name, const float *value) const {
     if (activeCmdList && compiled) {
       activeCmdList->SetUniformMatrix4(shaderHandle, name, value);
-    } else if (device && compiled) {
-      device->SetUniformMatrix4(shaderHandle, name, value);
     }
   }
 

@@ -90,10 +90,7 @@ public:
   void Init(RenderContext *context, Shader *defaultShader) {
     device = context->GetDevice();
     activeShader = defaultShader;
-    if (device) {
-      device->SetClearColor({0.0f, 0.0f, 0.0f, 1.0f});
-
-      // Create main pipeline for mesh rendering
+    if (device) { // Create main pipeline for mesh rendering
       RHI::VertexLayout meshLayout;
       meshLayout.stride = sizeof(Vertex);
       meshLayout.attributes = {{0, RHI::VertexAttributeType::Float3,

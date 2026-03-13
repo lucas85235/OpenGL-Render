@@ -320,8 +320,8 @@ private:
       passData.view = view;
       passData.projection = proj;
       passData.cameraPos = camera.GetPosition();
-      passData.windowWidth = sceneFB->GetWidth();
-      passData.windowHeight = sceneFB->GetHeight();
+      passData.windowWidth = static_cast<uint32_t>(sceneFB->GetWidth());
+      passData.windowHeight = static_cast<uint32_t>(sceneFB->GetHeight());
 
       RHI::CommandListHandle cmdHandle = rhiDevice->CreateCommandList();
       RHI::ICommandList *cmdList = rhiDevice->GetCommandList(cmdHandle);
@@ -338,11 +338,11 @@ private:
         passDesc.clearStencilBuffer = false;
 
         cmdList->BeginRenderPass(passDesc);
-        cmdList->SetViewport({0, 0, static_cast<int>(sceneFB->GetWidth()),
-                              static_cast<int>(sceneFB->GetHeight()), 0.0f,
+        cmdList->SetViewport({0, 0, static_cast<uint32_t>(sceneFB->GetWidth()),
+                              static_cast<uint32_t>(sceneFB->GetHeight()), 0.0f,
                               1.0f});
-        cmdList->SetScissor({0, 0, static_cast<int>(sceneFB->GetWidth()),
-                             static_cast<int>(sceneFB->GetHeight())});
+        cmdList->SetScissor({0, 0, static_cast<uint32_t>(sceneFB->GetWidth()),
+                             static_cast<uint32_t>(sceneFB->GetHeight())});
 
         passData.cmdList = cmdList;
 
@@ -355,14 +355,6 @@ private:
 
       rhiDevice->DestroyCommandList(cmdHandle);
     }
-
-    // Restore default framebuffer viewport to full window
-    RHI::Viewport vp;
-    vp.x = 0;
-    vp.y = 0;
-    vp.width = window->GetWidth();
-    vp.height = window->GetHeight();
-    rhiDevice->SetViewport(vp);
   }
 };
 

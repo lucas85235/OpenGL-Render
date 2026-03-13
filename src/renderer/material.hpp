@@ -49,24 +49,6 @@ public:
     return false;
   }
 
-  void Apply(RHI::IDevice *dev, RHI::ShaderHandle shader) const {
-    if (!dev)
-      return;
-
-    for (const auto &tex : textures) {
-      uint32_t slot = GetSlotForTextureType(tex->GetType());
-      tex->Bind(slot);
-    }
-
-    dev->SetUniform(shader, "material.albedo", &properties.albedo[0], 3);
-    dev->SetUniform(shader, "material.metallic", properties.metallic);
-    dev->SetUniform(shader, "material.roughness", properties.roughness);
-    dev->SetUniform(shader, "material.ao", properties.ao);
-    dev->SetUniform(shader, "material.emission", &properties.emission[0], 3);
-    dev->SetUniform(shader, "material.emissionStrength",
-                    properties.emissionStrength);
-  }
-
   void Apply(RHI::ICommandList *cmdList, RHI::ShaderHandle shader) const {
     if (!cmdList)
       return;

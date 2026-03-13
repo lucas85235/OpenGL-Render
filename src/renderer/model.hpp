@@ -204,9 +204,9 @@ public:
     loadModel(path);
   }
 
-  void Draw(RHI::IDevice *dev, RHI::ShaderHandle shader) {
+  void Draw(RHI::ICommandList *cmdList, RHI::ShaderHandle shader) {
     for (auto &mesh : meshes) {
-      mesh.Draw(dev, shader);
+      mesh.Draw(cmdList, shader);
     }
   }
 

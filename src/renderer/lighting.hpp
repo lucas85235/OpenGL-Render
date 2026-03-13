@@ -81,53 +81,55 @@ public:
   size_t GetPointLightCount() const { return pointLights.size(); }
   size_t GetSpotLightCount() const { return spotLights.size(); }
 
-  void ApplyToShader(RHI::IDevice *dev, RHI::ShaderHandle shader) const {
-    if (!dev)
+  void ApplyToShader(RHI::ICommandList *cmdList,
+                     RHI::ShaderHandle shader) const {
+    if (!cmdList)
       return;
 
     // Directional light
     if (hasSunLight) {
       glm::vec3 dir = sunLight.GetDirection();
-      dev->SetUniform(shader, "dirLight.direction", &dir[0], 3);
-      dev->SetUniform(shader, "dirLight.color", &sunLight.color[0], 3);
-      dev->SetUniform(shader, "dirLight.intensity", sunLight.intensity);
+      cmdList->SetUniform(shader, "dirLight.direction", &dir[0], 3);
+      cmdList->SetUniform(shader, "dirLight.color", &sunLight.color[0], 3);
+      cmdList->SetUniform(shader, "dirLight.intensity", sunLight.intensity);
     }
 
     // Point lights
     int numLights = static_cast<int>(pointLights.size());
-    dev->SetUniform(shader, "numPointLights", numLights);
+    cmdList->SetUniform(shader, "numPointLights", numLights);
 
     for (size_t i = 0; i < pointLights.size(); ++i) {
       std::string prefix = "pointLights[" + std::to_string(i) + "].";
-      dev->SetUniform(shader, (prefix + "position").c_str(),
-                      &pointLights[i].position[0], 3);
-      dev->SetUniform(shader, (prefix + "color").c_str(),
-                      &pointLights[i].color[0], 3);
-      dev->SetUniform(shader, (prefix + "intensity").c_str(),
-                      pointLights[i].intensity);
-      dev->SetUniform(shader, (prefix + "radius").c_str(),
-                      pointLights[i].radius);
+      cmdList->SetUniform(shader, (prefix + "position").c_str(),
+                          &pointLights[i].position[0], 3);
+      cmdList->SetUniform(shader, (prefix + "color").c_str(),
+                          &pointLights[i].color[0], 3);
+      cmdList->SetUniform(shader, (prefix + "intensity").c_str(),
+                          pointLights[i].intensity);
+      cmdList->SetUniform(shader, (prefix + "radius").c_str(),
+                          pointLights[i].radius);
     }
 
     // Spot lights
     int numSpots = static_cast<int>(spotLights.size());
-    dev->SetUniform(shader, "numSpotLights", numSpots);
+    cmdList->SetUniform(shader, "numSpotLights", numSpots);
 
     for (size_t i = 0; i < spotLights.size(); ++i) {
       std::string prefix = "spotLights[" + std::to_string(i) + "].";
       glm::vec3 dir = glm::normalize(spotLights[i].direction);
-      dev->SetUniform(shader, (prefix + "position").c_str(),
-                      &spotLights[i].position[0], 3);
-      dev->SetUniform(shader, (prefix + "direction").c_str(), &dir[0], 3);
-      dev->SetUniform(shader, (prefix + "color").c_str(),
-                      &spotLights[i].color[0], 3);
-      dev->SetUniform(shader, (prefix + "intensity").c_str(),
-                      spotLights[i].intensity);
-      dev->SetUniform(shader, (prefix + "range").c_str(), spotLights[i].range);
-      dev->SetUniform(shader, (prefix + "cutOff").c_str(),
-                      spotLights[i].GetCutoffCos());
-      dev->SetUniform(shader, (prefix + "outerCutOff").c_str(),
-                      spotLights[i].GetInnerCutoffCos());
+      cmdList->SetUniform(shader, (prefix + "position").c_str(),
+                          &spotLights[i].position[0], 3);
+      cmdList->SetUniform(shader, (prefix + "direction").c_str(), &dir[0], 3);
+      cmdList->SetUniform(shader, (prefix + "color").c_str(),
+                          &spotLights[i].color[0], 3);
+      cmdList->SetUniform(shader, (prefix + "intensity").c_str(),
+                          spotLights[i].intensity);
+      cmdList->SetUniform(shader, (prefix + "range").c_str(),
+                          spotLights[i].range);
+      cmdList->SetUniform(shader, (prefix + "cutOff").c_str(),
+                          spotLights[i].GetCutoffCos());
+      cmdList->SetUniform(shader, (prefix + "outerCutOff").c_str(),
+                          spotLights[i].GetInnerCutoffCos());
     }
   }
 };

@@ -166,35 +166,6 @@ public:
     environmentMap = cubemap;
   }
 
-  void Render(const glm::mat4 &view, const glm::mat4 &projection) {
-    if (!initialized || !device || !RHI::IsValid(environmentMap)) {
-      return;
-    }
-
-    // Bind skybox pipeline
-    device->BindPipeline(pipeline);
-    device->BindVertexArray(vao);
-
-    // Bind environment cubemap to slot 0
-    device->BindTexture(0, environmentMap);
-    device->BindSampler(0, sampler);
-
-    // Set uniforms (view without translation, projection as-is)
-    // Remove translation from view matrix
-    glm::mat4 viewRotOnly = glm::mat4(glm::mat3(view));
-
-    shader->SetMat4("view", glm::value_ptr(viewRotOnly));
-    shader->SetMat4("projection", glm::value_ptr(projection));
-    shader->SetInt("skybox", 0);
-
-    // Draw the cube
-    RHI::DrawCommand cmd;
-    cmd.vertexCount = 36;
-    cmd.instanceCount = 1;
-    cmd.firstVertex = 0;
-    device->Draw(cmd);
-  }
-
   void Shutdown() {
     if (!device)
       return;
