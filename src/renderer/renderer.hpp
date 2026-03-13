@@ -29,13 +29,16 @@ class Renderer {
 private:
   std::vector<RenderCommand> opaqueQueue;
   std::vector<RenderCommand> transparentQueue;
+  std::vector<ParticleRenderCommand> particleQueue;
   SceneData sceneData;
   Shader *activeShader = nullptr;
+  Shader *activeParticleShader = nullptr;
   RHI::IDevice *device = nullptr;
 
   RHI::BufferHandle screenQuadVB;
   RHI::VertexArrayHandle screenQuadVAO;
   RHI::PipelineHandle mainPipeline;
+  RHI::PipelineHandle particlePipeline;
 
   DirectionalLight sunLight;
   std::vector<PointLightData> pointLights;
@@ -80,6 +83,8 @@ public:
     if (device) {
       if (RHI::IsValid(mainPipeline))
         device->DestroyPipeline(mainPipeline);
+      if (RHI::IsValid(particlePipeline))
+        device->DestroyPipeline(particlePipeline);
       if (RHI::IsValid(screenQuadVAO))
         device->DestroyVertexArray(screenQuadVAO);
       if (RHI::IsValid(screenQuadVB))
@@ -87,9 +92,11 @@ public:
     }
   }
 
-  void Init(RenderContext *context, Shader *defaultShader) {
+  void Init(RenderContext *context, Shader *defaultShader,
+            Shader *particleShader = nullptr) {
     device = context->GetDevice();
     activeShader = defaultShader;
+    activeParticleShader = particleShader;
     if (device) { // Create main pipeline for mesh rendering
       RHI::VertexLayout meshLayout;
       meshLayout.stride = sizeof(Vertex);
@@ -117,6 +124,24 @@ public:
 
       mainPipeline = device->CreatePipeline(
           pipelineDesc, activeShader->GetHandle(), meshLayout);
+
+      if (activeParticleShader) {
+        RHI::PipelineDescriptor particleDesc = pipelineDesc;
+        particleDesc.blend.blendEnable = true;
+        particleDesc.blend.srcColorFactor = RHI::BlendFactor::SrcAlpha;
+        particleDesc.blend.dstColorFactor = RHI::BlendFactor::OneMinusSrcAlpha;
+        particleDesc.blend.colorOp = RHI::BlendOp::Add;
+        particleDesc.blend.srcAlphaFactor = RHI::BlendFactor::One;
+        particleDesc.blend.dstAlphaFactor = RHI::BlendFactor::Zero;
+        particleDesc.blend.alphaOp = RHI::BlendOp::Add;
+        particleDesc.depthStencil.depthWriteEnable =
+            false; // Usually particles don't write depth
+        particleDesc.rasterizer.cullMode =
+            RHI::CullMode::None; // Particles are often billlboards
+
+        particlePipeline = device->CreatePipeline(
+            particleDesc, activeParticleShader->GetHandle(), meshLayout);
+      }
     }
     initRenderData();
   }
@@ -148,6 +173,7 @@ public:
 
     opaqueQueue.clear();
     transparentQueue.clear();
+    particleQueue.clear();
     pointLights.clear();
   }
 
@@ -175,6 +201,10 @@ public:
     Material *matPtr = meshPtr->GetMaterial().get();
     float dist = glm::length(sceneData.cameraPos - glm::vec3(transform[3]));
     opaqueQueue.emplace_back(meshPtr, matPtr, transform, dist);
+  }
+
+  void SubmitParticles(const ParticleRenderCommand &cmd) {
+    particleQueue.push_back(cmd);
   }
 
   void EndScene(RHI::ICommandList *cmdList) {
@@ -239,6 +269,28 @@ public:
     }
 
     activeShader->BindCommandList(nullptr);
+
+    // Render Particles
+    if (activeParticleShader && !particleQueue.empty()) {
+      activeParticleShader->BindCommandList(cmdList);
+      activeParticleShader->SetMat4("view",
+                                    glm::value_ptr(sceneData.viewMatrix));
+      activeParticleShader->SetMat4("projection",
+                                    glm::value_ptr(sceneData.projectionMatrix));
+      activeParticleShader->SetVec3("CameraPosition", sceneData.cameraPos.x,
+                                    sceneData.cameraPos.y,
+                                    sceneData.cameraPos.z);
+
+      if (RHI::IsValid(particlePipeline)) {
+        cmdList->BindPipeline(particlePipeline);
+      }
+
+      for (const auto &cmd : particleQueue) {
+        RenderParticles(cmdList, cmd);
+      }
+
+      activeParticleShader->BindCommandList(nullptr);
+    }
   }
 
   void DrawScreenQuad(RHI::ICommandList *cmdList, Shader &screenShader,
@@ -300,6 +352,66 @@ private:
     drawCmd.instanceCount = 1;
     drawCmd.indexType = RHI::IndexType::UInt32;
     cmdList->DrawIndexed(drawCmd);
+  }
+
+  void RenderParticles(RHI::ICommandList *cmdList,
+                       const ParticleRenderCommand &cmd) {
+    if (!cmdList || !activeParticleShader)
+      return;
+
+    RHI::ShaderHandle shader = activeParticleShader->GetHandle();
+
+    // Bind Mapping Texture
+    if (cmd.mappingTexture) {
+      cmdList->BindTexture(0, cmd.mappingTexture->GetHandle());
+      activeParticleShader->SetInt("Tex", 0);
+    }
+
+    // Material logic (if it has textures or extra params)
+    if (cmd.material) {
+      if (cmd.material->GetTextureCount() > 0) {
+        cmdList->BindTexture(1, cmd.material->GetTexture(0)->GetHandle());
+        activeParticleShader->SetInt("Texture", 1);
+      }
+    }
+
+    activeParticleShader->SetInt("TextureWidth", cmd.textureWidth);
+    activeParticleShader->SetInt("Amount", cmd.amount);
+
+    activeParticleShader->SetVec3("Velocity", cmd.velocity.x, cmd.velocity.y,
+                                  cmd.velocity.z);
+    activeParticleShader->SetVec3("Position", cmd.transform[3][0],
+                                  cmd.transform[3][1], cmd.transform[3][2]);
+    // The reference passes rotation from info - we can extract from transform
+    // or send as param Let's rely on the vertex shader and pass model matrix
+    // for base transfroms
+    activeParticleShader->SetMat4("model", glm::value_ptr(cmd.transform));
+
+    activeParticleShader->SetVec3("Color", cmd.baseColor.x, cmd.baseColor.y,
+                                  cmd.baseColor.z);
+    activeParticleShader->SetVec2("Size", cmd.size.x, cmd.size.y);
+    activeParticleShader->SetFloat("Radius", cmd.radius);
+    activeParticleShader->SetFloat("Angle", cmd.angle);
+    activeParticleShader->SetBool("Center", cmd.center);
+
+    // Time could be passed if needed
+
+    // Select mesh (quad if null)
+    if (cmd.customMesh) {
+      cmdList->BindVertexArray(cmd.customMesh->GetVAO());
+      RHI::DrawIndexedCommand drawCmd;
+      drawCmd.indexCount = cmd.customMesh->GetIndexCount();
+      drawCmd.instanceCount = cmd.amount;
+      drawCmd.indexType = RHI::IndexType::UInt32;
+      cmdList->DrawIndexed(drawCmd);
+    } else {
+      // Draw screen quad with instancing
+      cmdList->BindVertexArray(screenQuadVAO);
+      RHI::DrawCommand drawCmd;
+      drawCmd.vertexCount = 6;
+      drawCmd.instanceCount = cmd.amount;
+      cmdList->Draw(drawCmd);
+    }
   }
 };
 

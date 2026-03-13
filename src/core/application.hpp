@@ -19,6 +19,7 @@
 #include "../renderer/render_graph/render_graph.hpp"
 #include "../renderer/render_graph/skybox_pass_node.hpp"
 #include "../scene/components.hpp"
+#include "../scene/particle_system.hpp"
 #include "camera.hpp"
 #include "vfs/native_file_system.hpp"
 
@@ -165,7 +166,21 @@ private:
     }
     ConsolePanel::LogInfo("PBR shader loaded");
 
-    renderer.Init(renderContext.get(), pbrShaderLoaded.get());
+    std::shared_ptr<Shader> particleShaderLoaded;
+    if (api == RHI::API::OpenGL) {
+      particleShaderLoaded = shaderMgr->LoadUnifiedShader(
+          "particle", "models/particle_opengl.shader");
+    }
+
+    if (particleShaderLoaded) {
+      ConsolePanel::LogInfo("Particle shader loaded");
+    } else {
+      ConsolePanel::LogWarn(
+          "Failed to load particle shader, particles may not appear.");
+    }
+
+    renderer.Init(renderContext.get(), pbrShaderLoaded.get(),
+                  particleShaderLoaded.get());
 
     // Setup Environment Map
     envMap.Initialize(rhiDevice, fileSystem.get());
@@ -257,6 +272,21 @@ private:
     blueLight->transform.Position = glm::vec3(2, 1, 0);
     blueLight->AddComponent<FloaterScript>(1.0f, 2.0f);
 
+    auto particleSystem = activeScene->CreateEntity("Particles");
+    ParticleSystemParams pParams;
+    pParams.amount = 5000;
+    pParams.baseColor = glm::vec3(1.0f, 0.7f, 0.2f);
+    pParams.radius = 3.0f;
+    pParams.size = glm::vec2(0.05f);
+    pParams.positionFunction = [](float t) -> glm::vec4 {
+      float angle = t * 3.14159f * 2.0f * 20.0f;
+      float y = (t - 0.5f) * 2.0f;
+      float r = sqrt(1.0f - y * y);
+      return glm::vec4(r * cos(angle), y, r * sin(angle), t);
+    };
+    particleSystem->AddComponent<ParticleSystemComponent>(pParams);
+    particleSystem->transform.Position = glm::vec3(0, 2.0f, -2.0f);
+
     activeScene->OnStart();
     ConsolePanel::LogInfo("Scene loaded (%zu entities)",
                           activeScene->GetEntityCount());
@@ -338,9 +368,8 @@ private:
         passDesc.clearStencilBuffer = false;
 
         cmdList->BeginRenderPass(passDesc);
-        cmdList->SetViewport({0, 0, static_cast<uint32_t>(sceneFB->GetWidth()),
-                              static_cast<uint32_t>(sceneFB->GetHeight()), 0.0f,
-                              1.0f});
+        cmdList->SetViewport({0.0f, 0.0f, sceneFB->GetWidth(),
+                              sceneFB->GetHeight(), 0.0f, 1.0f});
         cmdList->SetScissor({0, 0, static_cast<uint32_t>(sceneFB->GetWidth()),
                              static_cast<uint32_t>(sceneFB->GetHeight())});
 

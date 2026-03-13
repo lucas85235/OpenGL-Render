@@ -160,6 +160,13 @@ public:
     }
   }
 
+  void SetVec2(const std::string &name, float x, float y) const {
+    if (activeCmdList && compiled) {
+      float v[2] = {x, y};
+      activeCmdList->SetUniform(shaderHandle, name, v, 2);
+    }
+  }
+
   void SetVec3(const std::string &name, const float *value) const {
     if (activeCmdList && compiled) {
       activeCmdList->SetUniform(shaderHandle, name, value, 3);

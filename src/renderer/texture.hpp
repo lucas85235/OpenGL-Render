@@ -227,6 +227,42 @@ public:
     return false;
   }
 
+  bool CreateFromData(RHI::IDevice *dev, float *data, int w, int h,
+                      RHI::TextureFormat format) {
+    if (!dev)
+      return false;
+
+    device = dev;
+    width = w;
+    height = h;
+    channels = 4;
+    type = TextureType::UNKNOWN;
+
+    RHI::TextureDescriptor texDesc;
+    texDesc.type = RHI::TextureType::Texture2D;
+    texDesc.format = format;
+    texDesc.width = width;
+    texDesc.height = height;
+    texDesc.depth = 1;
+    texDesc.mipLevels = 1;
+    texDesc.data = data;
+
+    textureHandle = device->CreateTexture(texDesc);
+    if (!RHI::IsValid(textureHandle)) {
+      return false;
+    }
+
+    RHI::SamplerDescriptor samplerDesc;
+    samplerDesc.wrapS = RHI::TextureWrapMode::ClampToEdge;
+    samplerDesc.wrapT = RHI::TextureWrapMode::ClampToEdge;
+    samplerDesc.minFilter = RHI::TextureFilterMode::Nearest;
+    samplerDesc.magFilter = RHI::TextureFilterMode::Nearest;
+    samplerHandle = device->CreateSampler(samplerDesc);
+
+    loaded = true;
+    return true;
+  }
+
   void Bind(RHI::ICommandList *cmdList, unsigned int slot = 0) const {
     if (cmdList && loaded) {
       cmdList->BindTexture(slot, textureHandle);
