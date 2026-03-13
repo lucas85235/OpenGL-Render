@@ -11,6 +11,7 @@
 #include "../editor/editor_ui.hpp"
 #include "../editor/example_panel.hpp"
 #include "../editor/hierarchy_panel.hpp"
+#include "../editor/inspector_panel.hpp"
 #include "../editor/viewport_panel.hpp"
 #include "../renderer/framebuffer.hpp"
 #include "../renderer/model_factory.hpp"
@@ -110,6 +111,7 @@ private:
   EditorUI editorUI;
   ViewportPanel *viewportPanel = nullptr;
   HierarchyPanel *hierarchyPanel = nullptr;
+  InspectorPanel *inspectorPanel = nullptr;
 
 public:
   Application(const std::string &title, int width, int height) {
@@ -258,8 +260,9 @@ private:
     editorUI.AddPanel<ConsolePanel>();
     editorUI.AddPanel<ExamplePanel>();
     hierarchyPanel = editorUI.AddPanel<HierarchyPanel>();
+    inspectorPanel = editorUI.AddPanel<InspectorPanel>();
 
-    ConsolePanel::LogInfo("Editor UI initialized with %d panels", 4);
+    ConsolePanel::LogInfo("Editor UI initialized with %d panels", 5);
     ConsolePanel::LogInfo("Engine ready");
 
     return true;
@@ -268,6 +271,7 @@ private:
   void LoadContent() {
     activeScene = std::make_unique<Scene>();
     hierarchyPanel->SetContext(activeScene.get());
+    inspectorPanel->SetContext(activeScene.get(), hierarchyPanel);
 
     activeScene->AddSystem(std::make_shared<RenderSystem>());
     activeScene->AddSystem(std::make_shared<ParticleSystemRunner>());
