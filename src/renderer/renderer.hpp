@@ -180,8 +180,8 @@ public:
     opaqueQueue.emplace_back(meshPtr, matPtr, transform, dist);
   }
 
-  void EndScene() {
-    if (!device || !activeShader)
+  void EndScene(RHI::ICommandList *cmdList) {
+    if (!device || !activeShader || !cmdList)
       return;
 
     std::sort(opaqueQueue.begin(), opaqueQueue.end(),
@@ -190,6 +190,8 @@ public:
               });
 
     RHI::ShaderHandle shader = activeShader->GetHandle();
+
+    activeShader->BindCommandList(cmdList);
 
     activeShader->SetMat4("view", glm::value_ptr(sceneData.viewMatrix));
     activeShader->SetMat4("projection",
@@ -222,9 +224,9 @@ public:
 
     activeShader->SetBool("useIBL", useIBL);
     if (useIBL) {
-      device->BindTexture(10, iblIrradiance);
-      device->BindTexture(11, iblPrefilter);
-      device->BindTexture(12, iblBrdf);
+      cmdList->BindTexture(10, iblIrradiance);
+      cmdList->BindTexture(11, iblPrefilter);
+      cmdList->BindTexture(12, iblBrdf);
       activeShader->SetInt("irradianceMap", 10);
       activeShader->SetInt("prefilterMap", 11);
       activeShader->SetInt("brdfLUT", 12);
@@ -232,48 +234,53 @@ public:
 
     // Bind pipeline before rendering
     if (RHI::IsValid(mainPipeline)) {
-      device->BindPipeline(mainPipeline);
+      cmdList->BindPipeline(mainPipeline);
     }
 
     for (const auto &cmd : opaqueQueue) {
-      RenderMesh(cmd);
+      RenderMesh(cmdList, cmd);
     }
+
+    activeShader->BindCommandList(nullptr);
   }
 
-  void DrawScreenQuad(Shader &screenShader, RHI::TextureHandle texture) {
-    if (!device || !RHI::IsValid(screenQuadVAO))
+  void DrawScreenQuad(RHI::ICommandList *cmdList, Shader &screenShader,
+                      RHI::TextureHandle texture) {
+    if (!cmdList || !RHI::IsValid(screenQuadVAO))
       return;
 
+    screenShader.BindCommandList(cmdList);
     screenShader.SetInt("screenTexture", 0);
-    device->BindTexture(0, texture);
-    device->BindVertexArray(screenQuadVAO);
+    cmdList->BindTexture(0, texture);
+    cmdList->BindVertexArray(screenQuadVAO);
 
     RHI::DrawCommand cmd;
     cmd.vertexCount = 6;
     cmd.instanceCount = 1;
-    device->Draw(cmd);
+    cmdList->Draw(cmd);
+    screenShader.BindCommandList(nullptr);
   }
 
-  void DrawScreenQuad() {
-    if (!device || !RHI::IsValid(screenQuadVAO))
+  void DrawScreenQuad(RHI::ICommandList *cmdList) {
+    if (!cmdList || !RHI::IsValid(screenQuadVAO))
       return;
 
-    device->BindVertexArray(screenQuadVAO);
+    cmdList->BindVertexArray(screenQuadVAO);
     RHI::DrawCommand cmd;
     cmd.vertexCount = 6;
     cmd.instanceCount = 1;
-    device->Draw(cmd);
+    cmdList->Draw(cmd);
   }
 
 private:
-  void RenderMesh(const RenderCommand &cmd) {
-    if (!device || !activeShader)
+  void RenderMesh(RHI::ICommandList *cmdList, const RenderCommand &cmd) {
+    if (!cmdList || !activeShader)
       return;
 
     RHI::ShaderHandle shader = activeShader->GetHandle();
 
     if (cmd.material) {
-      cmd.material->Apply(device, shader);
+      cmd.material->Apply(cmdList, shader);
       activeShader->SetBool("hasTextureDiffuse",
                             cmd.material->HasTextureType(TextureType::DIFFUSE));
       activeShader->SetBool("hasTextureNormal",
@@ -290,12 +297,12 @@ private:
 
     activeShader->SetMat4("model", glm::value_ptr(cmd.transform));
 
-    device->BindVertexArray(cmd.mesh->GetVAO());
+    cmdList->BindVertexArray(cmd.mesh->GetVAO());
     RHI::DrawIndexedCommand drawCmd;
     drawCmd.indexCount = cmd.mesh->GetIndexCount();
     drawCmd.instanceCount = 1;
     drawCmd.indexType = RHI::IndexType::UInt32;
-    device->DrawIndexed(drawCmd);
+    cmdList->DrawIndexed(drawCmd);
   }
 };
 

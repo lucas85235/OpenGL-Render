@@ -53,7 +53,6 @@ public:
     if (!dev)
       return;
 
-    // Bind textures by TYPE to correct slot (not by array index)
     for (const auto &tex : textures) {
       uint32_t slot = GetSlotForTextureType(tex->GetType());
       tex->Bind(slot);
@@ -66,6 +65,25 @@ public:
     dev->SetUniform(shader, "material.emission", &properties.emission[0], 3);
     dev->SetUniform(shader, "material.emissionStrength",
                     properties.emissionStrength);
+  }
+
+  void Apply(RHI::ICommandList *cmdList, RHI::ShaderHandle shader) const {
+    if (!cmdList)
+      return;
+
+    for (const auto &tex : textures) {
+      uint32_t slot = GetSlotForTextureType(tex->GetType());
+      tex->Bind(cmdList, slot);
+    }
+
+    cmdList->SetUniform(shader, "material.albedo", &properties.albedo[0], 3);
+    cmdList->SetUniform(shader, "material.metallic", properties.metallic);
+    cmdList->SetUniform(shader, "material.roughness", properties.roughness);
+    cmdList->SetUniform(shader, "material.ao", properties.ao);
+    cmdList->SetUniform(shader, "material.emission", &properties.emission[0],
+                        3);
+    cmdList->SetUniform(shader, "material.emissionStrength",
+                        properties.emissionStrength);
   }
 
   // Map texture type to shader slot (0=diffuse, 1=normal, 2=metallic, etc.)

@@ -305,11 +305,6 @@ private:
 
     // Render to scene framebuffer
     if (sceneFB && sceneFB->IsInitialized()) {
-      sceneFB->Bind();
-
-      rhiDevice->SetClearColor({0.0f, 0.0f, 0.0f, 1.0f});
-      rhiDevice->Clear(true, true, false);
-
       float vpAspect = 1.0f;
       if (viewportPanel && viewportPanel->GetViewportHeight() > 0) {
         vpAspect = static_cast<float>(viewportPanel->GetViewportWidth()) /
@@ -328,9 +323,37 @@ private:
       passData.windowWidth = sceneFB->GetWidth();
       passData.windowHeight = sceneFB->GetHeight();
 
-      renderGraph->Execute(passData, activeScene.get());
+      RHI::CommandListHandle cmdHandle = rhiDevice->CreateCommandList();
+      RHI::ICommandList *cmdList = rhiDevice->GetCommandList(cmdHandle);
 
-      sceneFB->Unbind();
+      if (cmdList) {
+        cmdList->Begin();
+
+        RHI::RenderPassDescriptor passDesc;
+        passDesc.framebuffer = sceneFB->GetHandle();
+        passDesc.clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+        passDesc.clearDepth = 1.0f;
+        passDesc.clearColorBuffer = true;
+        passDesc.clearDepthBuffer = true;
+        passDesc.clearStencilBuffer = false;
+
+        cmdList->BeginRenderPass(passDesc);
+        cmdList->SetViewport({0, 0, static_cast<int>(sceneFB->GetWidth()),
+                              static_cast<int>(sceneFB->GetHeight()), 0.0f,
+                              1.0f});
+        cmdList->SetScissor({0, 0, static_cast<int>(sceneFB->GetWidth()),
+                             static_cast<int>(sceneFB->GetHeight())});
+
+        passData.cmdList = cmdList;
+
+        renderGraph->Execute(passData, activeScene.get());
+
+        cmdList->EndRenderPass();
+        cmdList->End();
+        rhiDevice->SubmitCommandList(cmdHandle);
+      }
+
+      rhiDevice->DestroyCommandList(cmdHandle);
     }
 
     // Restore default framebuffer viewport to full window

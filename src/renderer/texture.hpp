@@ -234,6 +234,13 @@ public:
     }
   }
 
+  void Bind(RHI::ICommandList *cmdList, unsigned int slot = 0) const {
+    if (cmdList && loaded) {
+      cmdList->BindTexture(slot, textureHandle);
+      cmdList->BindSampler(slot, samplerHandle);
+    }
+  }
+
   RHI::TextureHandle GetHandle() const { return textureHandle; }
   const std::string &GetPath() const { return path; }
   TextureType GetType() const { return type; }

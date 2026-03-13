@@ -1,6 +1,7 @@
 #ifndef RENDER_PASS_HPP
 #define RENDER_PASS_HPP
 
+#include "../../rhi/command_list.hpp"
 #include "../render_context.hpp"
 #include <glm/glm.hpp>
 #include <string>
@@ -13,6 +14,7 @@ struct RenderPassData {
   glm::vec3 cameraPos;
   int windowWidth;
   int windowHeight;
+  RHI::ICommandList *cmdList = nullptr;
 };
 
 class RenderPass {

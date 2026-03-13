@@ -16,6 +16,8 @@
 
 namespace RHI {
 
+class VulkanCommandList;
+
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
 #else
@@ -148,6 +150,11 @@ private:
   std::unordered_map<uint64_t, VulkanFramebuffer> framebuffers;
 
   uint64_t nextId = 1;
+
+  struct CommandListObject {
+    VulkanCommandList *cmdList = nullptr;
+  };
+  std::unordered_map<uint64_t, CommandListObject> commandLists;
 
   // Render State
   PipelineHandle currentPipeline;

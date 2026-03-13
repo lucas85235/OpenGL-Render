@@ -7,6 +7,8 @@
 
 namespace RHI {
 
+class OpenGLCommandList;
+
 class OpenGLDevice : public IDevice {
 private:
   struct BufferObject {
@@ -63,6 +65,11 @@ private:
   std::unordered_map<uint64_t, PipelineObject> pipelines;
   std::unordered_map<uint64_t, VertexArrayObject> vertexArrays;
   std::unordered_map<uint64_t, FramebufferObject> framebuffers;
+
+  struct CommandListObject {
+    OpenGLCommandList *cmdList = nullptr;
+  };
+  std::unordered_map<uint64_t, CommandListObject> commandLists;
 
   uint64_t nextId = 1;
   PipelineHandle currentPipeline;

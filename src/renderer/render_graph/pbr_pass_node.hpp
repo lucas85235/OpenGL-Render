@@ -25,7 +25,7 @@ public:
       return;
     renderer->BeginScene(data.view, data.projection, data.cameraPos);
     scene->OnRender(*renderer);
-    renderer->EndScene();
+    renderer->EndScene(data.cmdList);
   }
 
   std::string GetName() const override { return "PBRPass"; }

@@ -1,5 +1,6 @@
 #include "vulkan_device.hpp"
 #include "imgui_impl_vulkan.h"
+#include "vulkan_command_list.hpp"
 #include <cmath>
 #include <fstream>
 
@@ -3634,10 +3635,36 @@ void VulkanDevice::cleanupSkyboxResources() {
 } // namespace RHI
 
 namespace RHI {
-CommandListHandle VulkanDevice::CreateCommandList() { return {0}; }
+CommandListHandle VulkanDevice::CreateCommandList() {
+  uint64_t id = nextId++;
+  CommandListObject obj;
+  obj.cmdList = new VulkanCommandList(this);
+  commandLists[id] = obj;
+  return {id};
+}
+
 ICommandList *VulkanDevice::GetCommandList(CommandListHandle handle) {
+  auto it = commandLists.find(handle.id);
+  if (it != commandLists.end()) {
+    return it->second.cmdList;
+  }
   return nullptr;
 }
-void VulkanDevice::SubmitCommandList(CommandListHandle handle) {}
-void VulkanDevice::DestroyCommandList(CommandListHandle handle) {}
+
+void VulkanDevice::SubmitCommandList(CommandListHandle handle) {
+  auto it = commandLists.find(handle.id);
+  if (it != commandLists.end()) {
+    if (it->second.cmdList) {
+      it->second.cmdList->Execute();
+    }
+  }
+}
+
+void VulkanDevice::DestroyCommandList(CommandListHandle handle) {
+  auto it = commandLists.find(handle.id);
+  if (it != commandLists.end()) {
+    delete it->second.cmdList;
+    commandLists.erase(it);
+  }
+}
 } // namespace RHI

@@ -10,6 +10,7 @@
 class Shader {
 private:
   RHI::IDevice *device = nullptr;
+  RHI::ICommandList *activeCmdList = nullptr;
   RHI::ShaderHandle shaderHandle;
   bool compiled = false;
 
@@ -24,6 +25,7 @@ public:
   }
 
   void SetDevice(RHI::IDevice *dev) { device = dev; }
+  void BindCommandList(RHI::ICommandList *cmdList) { activeCmdList = cmdList; }
 
   bool CompileFromSource(const char *vertexSource, const char *fragmentSource) {
     if (!device) {
@@ -134,38 +136,51 @@ public:
   RHI::IDevice *GetDevice() const { return device; }
 
   void SetBool(const std::string &name, bool value) const {
-    if (device && compiled) {
+    if (activeCmdList && compiled) {
+      activeCmdList->SetUniform(shaderHandle, name, static_cast<int>(value));
+    } else if (device && compiled) {
       device->SetUniform(shaderHandle, name, static_cast<int>(value));
     }
   }
 
   void SetInt(const std::string &name, int value) const {
-    if (device && compiled) {
+    if (activeCmdList && compiled) {
+      activeCmdList->SetUniform(shaderHandle, name, value);
+    } else if (device && compiled) {
       device->SetUniform(shaderHandle, name, value);
     }
   }
 
   void SetFloat(const std::string &name, float value) const {
-    if (device && compiled) {
+    if (activeCmdList && compiled) {
+      activeCmdList->SetUniform(shaderHandle, name, value);
+    } else if (device && compiled) {
       device->SetUniform(shaderHandle, name, value);
     }
   }
 
   void SetVec3(const std::string &name, float x, float y, float z) const {
-    if (device && compiled) {
+    if (activeCmdList && compiled) {
+      float v[3] = {x, y, z};
+      activeCmdList->SetUniform(shaderHandle, name, v, 3);
+    } else if (device && compiled) {
       float v[3] = {x, y, z};
       device->SetUniform(shaderHandle, name, v, 3);
     }
   }
 
   void SetVec3(const std::string &name, const float *value) const {
-    if (device && compiled) {
+    if (activeCmdList && compiled) {
+      activeCmdList->SetUniform(shaderHandle, name, value, 3);
+    } else if (device && compiled) {
       device->SetUniform(shaderHandle, name, value, 3);
     }
   }
 
   void SetMat4(const std::string &name, const float *value) const {
-    if (device && compiled) {
+    if (activeCmdList && compiled) {
+      activeCmdList->SetUniformMatrix4(shaderHandle, name, value);
+    } else if (device && compiled) {
       device->SetUniformMatrix4(shaderHandle, name, value);
     }
   }

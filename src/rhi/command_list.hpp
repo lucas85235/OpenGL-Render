@@ -37,6 +37,8 @@ public:
 
   virtual void Draw(const DrawCommand &cmd) = 0;
   virtual void DrawIndexed(const DrawIndexedCommand &cmd) = 0;
+  virtual void DrawSkybox(TextureHandle cubemap, SamplerHandle sampler,
+                          const float *view, const float *proj) = 0;
 };
 
 } // namespace RHI

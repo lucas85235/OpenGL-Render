@@ -20,10 +20,10 @@ public:
 
   void Execute(RenderContext *context, const RenderPassData &data,
                Scene *scene) override {
-    if (envMap && envMap->IsValid()) {
-      context->GetDevice()->DrawSkybox(
-          envMap->GetCubemap(), envMap->GetSampler(), glm::value_ptr(data.view),
-          glm::value_ptr(data.projection));
+    if (envMap && envMap->IsValid() && data.cmdList) {
+      data.cmdList->DrawSkybox(envMap->GetCubemap(), envMap->GetSampler(),
+                               glm::value_ptr(data.view),
+                               glm::value_ptr(data.projection));
     }
   }
 

@@ -1,5 +1,6 @@
 #include "opengl_device.hpp"
 #include "../shader_cross_compiler.hpp"
+#include "opengl_command_list.hpp"
 #include <cstring>
 #include <iostream>
 
@@ -1462,10 +1463,36 @@ void OpenGLDevice::RenderImGui() {
 } // namespace RHI
 
 namespace RHI {
-CommandListHandle OpenGLDevice::CreateCommandList() { return {0}; }
+CommandListHandle OpenGLDevice::CreateCommandList() {
+  uint64_t id = nextId++;
+  CommandListObject obj;
+  obj.cmdList = new OpenGLCommandList(this);
+  commandLists[id] = obj;
+  return {id};
+}
+
 ICommandList *OpenGLDevice::GetCommandList(CommandListHandle handle) {
+  auto it = commandLists.find(handle.id);
+  if (it != commandLists.end()) {
+    return it->second.cmdList;
+  }
   return nullptr;
 }
-void OpenGLDevice::SubmitCommandList(CommandListHandle handle) {}
-void OpenGLDevice::DestroyCommandList(CommandListHandle handle) {}
+
+void OpenGLDevice::SubmitCommandList(CommandListHandle handle) {
+  auto it = commandLists.find(handle.id);
+  if (it != commandLists.end()) {
+    if (it->second.cmdList) {
+      it->second.cmdList->Execute();
+    }
+  }
+}
+
+void OpenGLDevice::DestroyCommandList(CommandListHandle handle) {
+  auto it = commandLists.find(handle.id);
+  if (it != commandLists.end()) {
+    delete it->second.cmdList;
+    commandLists.erase(it);
+  }
+}
 } // namespace RHI

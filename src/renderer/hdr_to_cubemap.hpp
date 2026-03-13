@@ -166,15 +166,20 @@ public:
     std::cout << "[HdrToCubemap] Converting HDR to cubemap (" << faceSize << "x"
               << faceSize << ")..." << std::endl;
 
-    // For each cubemap face, render the cube with the appropriate view matrix
+    RHI::CommandListHandle cmdHandle = device->CreateCommandList();
+    RHI::ICommandList *cmdList = device->GetCommandList(cmdHandle);
+    if (!cmdList)
+      return false;
+
+    cmdList->Begin();
+    std::vector<RHI::FramebufferHandle> tempFBs;
+
     for (int face = 0; face < 6; ++face) {
-      // Create a temporary framebuffer for this face
       RHI::FramebufferDescriptor fbDesc;
       fbDesc.width = faceSize;
       fbDesc.height = faceSize;
       fbDesc.hasDepth = false;
 
-      // Create a temporary 2D texture for the face
       RHI::TextureDescriptor faceTexDesc;
       faceTexDesc.type = RHI::TextureType::Texture2D;
       faceTexDesc.format = RHI::TextureFormat::RGBA16F;
@@ -201,20 +206,26 @@ public:
                   << face << std::endl;
         continue;
       }
+      tempFBs.push_back(fb);
 
-      // Bind framebuffer and render
-      device->BindFramebuffer(fb);
-      device->SetViewport({0, 0, static_cast<int>(faceSize),
-                           static_cast<int>(faceSize), 0.0f, 1.0f});
-      device->SetClearColor({0.0f, 0.0f, 0.0f, 1.0f});
-      device->Clear(true, false, false);
+      RHI::RenderPassDescriptor passDesc;
+      passDesc.framebuffer = fb;
+      passDesc.clearColorBuffer = true;
+      passDesc.clearDepthBuffer = false;
+      passDesc.clearStencilBuffer = false;
+      passDesc.clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
 
-      device->BindPipeline(pipeline);
-      device->BindVertexArray(cubeVAO);
+      cmdList->BeginRenderPass(passDesc);
+      cmdList->SetViewport({0, 0, static_cast<int>(faceSize),
+                            static_cast<int>(faceSize), 0.0f, 1.0f});
 
-      device->BindTexture(0, hdrTexture);
-      device->BindSampler(0, sampler);
+      cmdList->BindPipeline(pipeline);
+      cmdList->BindVertexArray(cubeVAO);
 
+      cmdList->BindTexture(0, hdrTexture);
+      cmdList->BindSampler(0, sampler);
+
+      shader->BindCommandList(cmdList);
       shader->SetInt("equirectangularMap", 0);
       shader->SetMat4("projection", glm::value_ptr(captureProjection));
       shader->SetMat4("view", glm::value_ptr(captureViews[face]));
@@ -222,25 +233,20 @@ public:
       RHI::DrawCommand cmd;
       cmd.vertexCount = 36;
       cmd.instanceCount = 1;
-      device->Draw(cmd);
+      cmdList->Draw(cmd);
 
-      // Unbind framebuffer
-      device->BindFramebuffer(RHI::FramebufferHandle{0});
+      shader->BindCommandList(nullptr);
+      cmdList->EndRenderPass();
 
-      // Read back face texture and update cubemap face
-      // Note: The RHI doesn't have a ReadTexture method, so we use a workaround
-      // For now, we'll update the cubemap face directly via
-      // UpdateTextureCubeFace This requires reading back the rendered face,
-      // which is complex in Vulkan
-
-      // For OpenGL, we can use glCopyTexImage2D-like approach
-      // For now, just log that this face was processed
       std::cout << "[HdrToCubemap] Rendered face " << face << std::endl;
+    }
 
-      // Clean up temporary resources
+    cmdList->End();
+    device->SubmitCommandList(cmdHandle);
+    device->DestroyCommandList(cmdHandle);
+
+    for (auto fb : tempFBs) {
       device->DestroyFramebuffer(fb);
-      // Note: DestroyFramebuffer may not destroy the attached texture
-      // device->DestroyTexture(faceTex);
     }
 
     device->GenerateMipmaps(cubemap);
