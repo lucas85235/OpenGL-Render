@@ -23,6 +23,57 @@
 #include "camera.hpp"
 #include "vfs/native_file_system.hpp"
 
+#include "../scene/systems/particle_system_runner.hpp"
+#include "../scene/systems/render_system.hpp"
+
+// Native Scripts Definitions
+class RotatorScript : public ScriptableEntity {
+public:
+  glm::vec3 rotationSpeed = glm::vec3(0.0f);
+
+  void OnCreate() override {
+    // Find existing RotatorScriptComponent if added for configuration (legacy
+    // fallback/config pass) or just initialize. For now we configure manually
+    // via instance after binding or via components. If we want to read config
+    // from an old component:
+    if (HasComponent<RotatorScriptComponent>()) {
+      rotationSpeed = GetComponent<RotatorScriptComponent>().rotationSpeed;
+    }
+  }
+
+  void OnUpdate(float dt) override {
+    auto &transform = GetComponent<TransformComponent>();
+    transform.Rotation += rotationSpeed * dt;
+  }
+};
+
+class FloaterScript : public ScriptableEntity {
+public:
+  float startY = 0.0f;
+  float time = 0.0f;
+  float amplitude = 1.0f;
+  float frequency = 1.0f;
+  bool initialized = false;
+
+  void OnCreate() override {
+    if (HasComponent<FloaterScriptComponent>()) {
+      auto comp = GetComponent<FloaterScriptComponent>();
+      amplitude = comp.amplitude;
+      frequency = comp.frequency;
+    }
+  }
+
+  void OnUpdate(float dt) override {
+    auto &transform = GetComponent<TransformComponent>();
+    if (!initialized) {
+      startY = transform.Position.y;
+      initialized = true;
+    }
+    time += dt;
+    transform.Position.y = startY + std::sin(time * frequency) * amplitude;
+  }
+};
+
 class Application {
 private:
   std::unique_ptr<Window> window;
@@ -213,6 +264,8 @@ private:
 
   void LoadContent() {
     activeScene = std::make_unique<Scene>();
+    activeScene->AddSystem(std::make_shared<RenderSystem>());
+    activeScene->AddSystem(std::make_shared<ParticleSystemRunner>());
 
     auto gold = std::make_shared<Material>(MaterialLibrary::CreateGold());
     auto silver = std::make_shared<Material>(MaterialLibrary::CreateSilver());
@@ -240,6 +293,7 @@ private:
     }
 
     playerEntity.AddComponent<RotatorScriptComponent>(glm::vec3(0, 30, 0));
+    playerEntity.AddComponent<NativeScriptComponent>().Bind<RotatorScript>();
     playerEntity.GetTransform().Position = glm::vec3(0, 0.5f, 0);
     playerEntity.GetTransform().Rotation = glm::vec3(0, 0, 0);
 
@@ -273,6 +327,7 @@ private:
                                                 10.0f);
     blueLight.GetTransform().Position = glm::vec3(2, 1, 0);
     blueLight.AddComponent<FloaterScriptComponent>(1.0f, 2.0f);
+    blueLight.AddComponent<NativeScriptComponent>().Bind<FloaterScript>();
 
     auto particleSystem = activeScene->CreateEntity("Particles");
     ParticleSystemParams pParams;

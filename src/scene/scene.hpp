@@ -9,6 +9,7 @@
 #include "../renderer/renderer.hpp"
 #include "components.hpp"
 #include "particle_system.hpp"
+#include "system.hpp"
 
 class Entity;
 
@@ -19,6 +20,7 @@ class Scene {
 private:
   entt::registry registry;
   std::string name = "Untitled";
+  std::vector<std::shared_ptr<System>> systems;
 
   friend class Entity;
   // TODO serializers might need friend access or views
@@ -43,8 +45,12 @@ public:
     return registry.storage<entt::entity>()->size();
   }
 
+  void AddSystem(std::shared_ptr<System> system) { systems.push_back(system); }
+
   void OnStart() {
-    // Initialization could happen here if necessary for components like Floater
+    for (auto &system : systems) {
+      system->OnStart(this);
+    }
   }
 
   void OnUpdate(float dt);
@@ -125,121 +131,29 @@ inline Entity Scene::FindEntity(const std::string &name) {
 }
 
 inline void Scene::OnUpdate(float dt) {
-  // Update Rotator Scripts
-  auto rotView = registry.view<TransformComponent, RotatorScriptComponent>();
-  for (auto entity : rotView) {
-    auto [transform, rotator] =
-        rotView.get<TransformComponent, RotatorScriptComponent>(entity);
-    transform.Rotation += rotator.rotationSpeed * dt;
-  }
-
-  // Update Floater Scripts
-  auto floatView = registry.view<TransformComponent, FloaterScriptComponent>();
-  for (auto entity : floatView) {
-    auto [transform, floater] =
-        floatView.get<TransformComponent, FloaterScriptComponent>(entity);
-    if (!floater.initialized) {
-      floater.startY = transform.Position.y;
-      floater.initialized = true;
+  // Update Native Scripts first
+  registry.view<NativeScriptComponent>().each([=](auto entityID, auto &nsc) {
+    if (!nsc.Instance) {
+      nsc.Instance = nsc.InstantiateScript();
+      nsc.Instance->entityHandle = entityID;
+      nsc.Instance->scene = this;
+      nsc.Instance->OnCreate();
     }
-    floater.time += dt;
-    transform.Position.y =
-        floater.startY +
-        std::sin(floater.time * floater.frequency) * floater.amplitude;
+    nsc.Instance->OnUpdate(dt);
+  });
+
+  // Call assigned Systems
+  for (auto &system : systems) {
+    system->OnUpdate(this, dt);
   }
 }
 
 inline void Scene::OnRender(Renderer &renderer) {
-  // Render Simple Meshes
-  auto simpleMeshView =
-      registry.view<TransformComponent, SimpleMeshRendererComponent>();
-  for (auto entity : simpleMeshView) {
-    auto [transform, meshComp] =
-        simpleMeshView.get<TransformComponent, SimpleMeshRendererComponent>(
-            entity);
-    if (meshComp.mesh) {
-      renderer.SubmitMesh(*meshComp.mesh, transform.GetMatrix());
-    }
-  }
-
-  // Render PBR Meshes
-  auto meshView = registry.view<TransformComponent, MeshRendererComponent>();
-  for (auto entity : meshView) {
-    auto [transform, meshComp] =
-        meshView.get<TransformComponent, MeshRendererComponent>(entity);
-    if (meshComp.model) {
-      if (meshComp.materialOverride) {
-        meshComp.model->SetMaterialAll(meshComp.materialOverride);
-      }
-      renderer.Submit(meshComp.model, transform.GetMatrix());
-    }
-  }
-
-  // Submit Directional Lights
-  auto dirLightView =
-      registry.view<TransformComponent, DirectionalLightComponent>();
-  for (auto entity : dirLightView) {
-    auto [transform, lightComp] =
-        dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
-    DirectionalLight lightInfo;
-    lightInfo.color = lightComp.color;
-    lightInfo.intensity = lightComp.intensity;
-
-    // Use entity position as direction if valid, otherwise use default
-    glm::vec3 pos = transform.Position;
-    float len = glm::length(pos);
-    if (len > 0.001f) {
-      lightInfo.direction = glm::normalize(-pos);
-    } else {
-      lightInfo.direction = glm::normalize(lightComp.direction);
-    }
-    renderer.SubmitDirectionalLight(lightInfo);
-  }
-
-  // Submit Point Lights
-  auto pointLightView =
-      registry.view<TransformComponent, PointLightComponent>();
-  for (auto entity : pointLightView) {
-    auto [transform, lightComp] =
-        pointLightView.get<TransformComponent, PointLightComponent>(entity);
-    PointLightData lightInfo;
-    lightInfo.position = transform.Position;
-    lightInfo.color = lightComp.color;
-    lightInfo.intensity = lightComp.intensity;
-    lightInfo.radius = lightComp.radius;
-    renderer.SubmitPointLight(lightInfo);
-  }
-
-  // Submit Particle Systems
-  auto particleView =
-      registry.view<TransformComponent, ParticleSystemComponent>();
-  for (auto entity : particleView) {
-    auto [transform, particle] =
-        particleView.get<TransformComponent, ParticleSystemComponent>(entity);
-    if (!particle.initialized && renderer.GetDevice()) {
-      particle.CreateMappingTexture(renderer.GetDevice());
-      particle.initialized = true;
-    }
-
-    if (particle.initialized && particle.mappingTexture) {
-      ParticleRenderCommand pCmd;
-      pCmd.amount = particle.params.amount;
-      pCmd.textureWidth = particle.textureWidth;
-      pCmd.mappingTexture = particle.mappingTexture;
-      pCmd.material = particle.params.material;
-      pCmd.customMesh = particle.params.customMesh;
-      pCmd.transform = transform.GetMatrix();
-
-      pCmd.velocity = particle.params.velocity;
-      pCmd.baseColor = particle.params.baseColor;
-      pCmd.size = particle.params.size;
-      pCmd.radius = particle.params.radius;
-      pCmd.angle = particle.params.angle;
-      pCmd.center = particle.params.center;
-
-      renderer.SubmitParticles(pCmd);
-    }
+  for (auto &system : systems) {
+    system->OnRender(this, renderer);
   }
 }
+
+#include "scriptable_entity.hpp"
 
 #endif

@@ -107,4 +107,23 @@ struct PointLightComponent {
       : color(col), intensity(intens), radius(rad) {}
 };
 
+class ScriptableEntity; // Forward declaration
+
+struct NativeScriptComponent {
+  ScriptableEntity *Instance = nullptr;
+
+  ScriptableEntity *(*InstantiateScript)() = nullptr;
+  void (*DestroyScript)(NativeScriptComponent *) = nullptr;
+
+  template <typename T> void Bind() {
+    InstantiateScript = []() {
+      return static_cast<ScriptableEntity *>(new T());
+    };
+    DestroyScript = [](NativeScriptComponent *self) {
+      delete self->Instance;
+      self->Instance = nullptr;
+    };
+  }
+};
+
 #endif
