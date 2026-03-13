@@ -1036,14 +1036,29 @@ void OpenGLDevice::DisableScissor() { glDisable(GL_SCISSOR_TEST); }
 
 void OpenGLDevice::Clear(bool color, bool depth, bool stencil) {
   GLbitfield mask = 0;
-  if (color)
+  // Save previous state to not accidentally mess up pipeline state if called
+  // mid-pass
+  GLboolean prevDepthMask;
+  glGetBooleanv(GL_DEPTH_WRITEMASK, &prevDepthMask);
+
+  if (color) {
     mask |= GL_COLOR_BUFFER_BIT;
-  if (depth)
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); // Ensure color clears
+  }
+  if (depth) {
     mask |= GL_DEPTH_BUFFER_BIT;
+    glDepthMask(
+        GL_TRUE); // CRITICAL: glClear doesn't clear depth if mask is false!
+  }
   if (stencil)
     mask |= GL_STENCIL_BUFFER_BIT;
 
   glClear(mask);
+
+  // Restore state
+  if (depth && !prevDepthMask) {
+    glDepthMask(GL_FALSE);
+  }
 }
 
 void OpenGLDevice::SetClearColor(const ClearColor &color) {
@@ -1125,7 +1140,13 @@ void OpenGLDevice::SetUniform(ShaderHandle shader, const std::string &name,
   }
 
   if (location != -1) {
+    GLint prev;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev);
+    if (prev != static_cast<GLint>(it->second.program))
+      glUseProgram(it->second.program);
     glUniform1i(location, value);
+    if (prev != static_cast<GLint>(it->second.program))
+      glUseProgram(prev);
   }
 }
 
@@ -1147,7 +1168,13 @@ void OpenGLDevice::SetUniform(ShaderHandle shader, const std::string &name,
   }
 
   if (location != -1) {
+    GLint prev;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev);
+    if (prev != static_cast<GLint>(it->second.program))
+      glUseProgram(it->second.program);
     glUniform1f(location, value);
+    if (prev != static_cast<GLint>(it->second.program))
+      glUseProgram(prev);
   }
 }
 
@@ -1169,6 +1196,11 @@ void OpenGLDevice::SetUniform(ShaderHandle shader, const std::string &name,
   }
 
   if (location != -1) {
+    GLint prev;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev);
+    if (prev != static_cast<GLint>(it->second.program))
+      glUseProgram(it->second.program);
+
     if (count == 1)
       glUniform1f(location, value[0]);
     else if (count == 2)
@@ -1177,6 +1209,9 @@ void OpenGLDevice::SetUniform(ShaderHandle shader, const std::string &name,
       glUniform3fv(location, 1, value);
     else if (count == 4)
       glUniform4fv(location, 1, value);
+
+    if (prev != static_cast<GLint>(it->second.program))
+      glUseProgram(prev);
   }
 }
 
@@ -1199,7 +1234,15 @@ void OpenGLDevice::SetUniformMatrix4(ShaderHandle shader,
   }
 
   if (location != -1) {
+    GLint prev;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev);
+    if (prev != static_cast<GLint>(it->second.program))
+      glUseProgram(it->second.program);
+
     glUniformMatrix4fv(location, 1, GL_FALSE, matrix);
+
+    if (prev != static_cast<GLint>(it->second.program))
+      glUseProgram(prev);
   }
 }
 

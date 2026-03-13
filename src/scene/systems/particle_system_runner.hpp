@@ -19,6 +19,9 @@ public:
       if (!particle.initialized && renderer.GetDevice()) {
         particle.CreateMappingTexture(renderer.GetDevice());
         particle.initialized = true;
+        std::cout << "[ParticleSystem] Initialized: " << particle.params.amount
+                  << " particles, texWidth=" << particle.textureWidth
+                  << std::endl;
       }
 
       if (particle.initialized && particle.mappingTexture) {
@@ -29,6 +32,7 @@ public:
         pCmd.material = particle.params.material;
         pCmd.customMesh = particle.params.customMesh;
         pCmd.transform = transform.GetMatrix();
+        pCmd.basePosition = transform.Position;
 
         pCmd.velocity = particle.params.velocity;
         pCmd.baseColor = particle.params.baseColor;

@@ -15,7 +15,11 @@ public:
       std::cerr << "[PBRPass] Shader 'pbr' not found!" << std::endl;
       return false;
     }
-    renderer->Init(context, pbrShader.get());
+
+    // Also fetch the particle shader so we don't overwrite it with nullptr
+    auto particleShader = context->GetShaderManager()->GetShader("particle");
+
+    renderer->Init(context, pbrShader.get(), particleShader.get());
     return true;
   }
 

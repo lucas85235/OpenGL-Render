@@ -361,31 +361,28 @@ private:
 
     RHI::ShaderHandle shader = activeParticleShader->GetHandle();
 
-    // Bind Mapping Texture
     if (cmd.mappingTexture) {
       cmdList->BindTexture(0, cmd.mappingTexture->GetHandle());
       activeParticleShader->SetInt("Tex", 0);
     }
 
-    // Material logic (if it has textures or extra params)
+    bool hasTex = false;
     if (cmd.material) {
       if (cmd.material->GetTextureCount() > 0) {
         cmdList->BindTexture(1, cmd.material->GetTexture(0)->GetHandle());
         activeParticleShader->SetInt("Texture", 1);
+        hasTex = true;
       }
     }
+    activeParticleShader->SetBool("hasTexture", hasTex);
 
     activeParticleShader->SetInt("TextureWidth", cmd.textureWidth);
     activeParticleShader->SetInt("Amount", cmd.amount);
 
     activeParticleShader->SetVec3("Velocity", cmd.velocity.x, cmd.velocity.y,
                                   cmd.velocity.z);
-    activeParticleShader->SetVec3("Position", cmd.transform[3][0],
-                                  cmd.transform[3][1], cmd.transform[3][2]);
-    // The reference passes rotation from info - we can extract from transform
-    // or send as param Let's rely on the vertex shader and pass model matrix
-    // for base transfroms
-    activeParticleShader->SetMat4("model", glm::value_ptr(cmd.transform));
+    activeParticleShader->SetVec3("Position", cmd.basePosition.x,
+                                  cmd.basePosition.y, cmd.basePosition.z);
 
     activeParticleShader->SetVec3("Color", cmd.baseColor.x, cmd.baseColor.y,
                                   cmd.baseColor.z);
@@ -394,9 +391,6 @@ private:
     activeParticleShader->SetFloat("Angle", cmd.angle);
     activeParticleShader->SetBool("Center", cmd.center);
 
-    // Time could be passed if needed
-
-    // Select mesh (quad if null)
     if (cmd.customMesh) {
       cmdList->BindVertexArray(cmd.customMesh->GetVAO());
       RHI::DrawIndexedCommand drawCmd;
@@ -405,7 +399,6 @@ private:
       drawCmd.indexType = RHI::IndexType::UInt32;
       cmdList->DrawIndexed(drawCmd);
     } else {
-      // Draw screen quad with instancing
       cmdList->BindVertexArray(screenQuadVAO);
       RHI::DrawCommand drawCmd;
       drawCmd.vertexCount = 6;

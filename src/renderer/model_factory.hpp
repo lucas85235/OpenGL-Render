@@ -152,6 +152,21 @@ public:
     return Mesh(device, vertices, indices, nullptr);
   }
 
+  static Mesh CreateQuad(RHI::IDevice *device, float size = 1.0f) {
+    std::vector<Vertex> vertices;
+    std::vector<unsigned int> indices;
+    float half = size / 2.0f;
+
+    glm::vec3 n = {0, 0, 1}, t = {1, 0, 0}, b = {0, 1, 0};
+    vertices = {{{-half, -half, 0}, n, {0, 0}, t, b},
+                {{half, -half, 0}, n, {1, 0}, t, b},
+                {{half, half, 0}, n, {1, 1}, t, b},
+                {{-half, half, 0}, n, {0, 1}, t, b}};
+    indices = {0, 1, 2, 2, 3, 0};
+
+    return Mesh(device, vertices, indices, nullptr);
+  }
+
   static Mesh CreateCylinder(RHI::IDevice *device, float radius = 0.5f,
                              float height = 2.0f, int sectors = 36) {
     std::vector<Vertex> vertices;

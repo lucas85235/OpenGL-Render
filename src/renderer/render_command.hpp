@@ -27,6 +27,7 @@ struct ParticleRenderCommand {
   std::shared_ptr<Material> material;
   std::shared_ptr<Mesh> customMesh;
   glm::mat4 transform;
+  glm::vec3 basePosition;
 
   glm::vec3 velocity;
   glm::vec3 baseColor;

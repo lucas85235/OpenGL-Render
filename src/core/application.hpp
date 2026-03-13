@@ -284,27 +284,7 @@ private:
 
     materials = {gold, silver, plastic, rubber, copper};
 
-    playerEntity = activeScene->CreateEntity("Helmet");
-    try {
-      auto model = std::make_shared<Model>(
-          renderContext->GetDevice(), renderContext->GetTextureManager(),
-          "models/DamagedHelmet/DamagedHelmet.glb");
-      if (model->GetMeshCount() > 0)
-        materials.push_back(model->GetMesh(0).GetMaterial());
-
-      auto &renderComp =
-          playerEntity.AddComponent<MeshRendererComponent>(model);
-      renderComp.materialOverride = materials[5];
-      ConsolePanel::LogInfo("Model loaded: DamagedHelmet (%zu meshes)",
-                            model->GetMeshCount());
-    } catch (...) {
-      ConsolePanel::LogError("Failed to load model");
-    }
-
-    playerEntity.AddComponent<RotatorScriptComponent>(glm::vec3(0, 30, 0));
-    playerEntity.AddComponent<NativeScriptComponent>().Bind<RotatorScript>();
-    playerEntity.GetTransform().Position = glm::vec3(0, 0.5f, 0);
-    playerEntity.GetTransform().Rotation = glm::vec3(0, 0, 0);
+    materials = {gold, silver, plastic, rubber, copper};
 
     auto floor = activeScene->CreateEntity("Floor");
     auto floorMesh = std::make_shared<Mesh>(
@@ -326,32 +306,23 @@ private:
     sun.AddComponent<DirectionalLightComponent>(glm::vec3(1.0f, 0.9f, 0.8f),
                                                 2.0f);
 
-    auto redLight = activeScene->CreateEntity("RedLight");
-    redLight.AddComponent<PointLightComponent>(glm::vec3(1, 0, 0), 30.0f,
-                                               10.0f);
-    redLight.GetTransform().Position = glm::vec3(-2, 1, -2);
-
-    auto blueLight = activeScene->CreateEntity("BlueLight");
-    blueLight.AddComponent<PointLightComponent>(glm::vec3(0, 0.5f, 1), 30.0f,
-                                                10.0f);
-    blueLight.GetTransform().Position = glm::vec3(2, 1, 0);
-    blueLight.AddComponent<FloaterScriptComponent>(1.0f, 2.0f);
-    blueLight.AddComponent<NativeScriptComponent>().Bind<FloaterScript>();
-
     auto particleSystem = activeScene->CreateEntity("Particles");
     ParticleSystemParams pParams;
-    pParams.amount = 5000;
-    pParams.baseColor = glm::vec3(1.0f, 0.7f, 0.2f);
-    pParams.radius = 3.0f;
-    pParams.size = glm::vec2(0.05f);
+    pParams.amount = 100;
+    pParams.baseColor = glm::vec3(1.0f, 1.0f, 1.0f);
+    pParams.radius = 2.0f;
+    pParams.size = glm::vec2(0.2f);
     pParams.positionFunction = [](float t) -> glm::vec4 {
-      float angle = t * 3.14159f * 2.0f * 20.0f;
-      float y = (t - 0.5f) * 2.0f;
-      float r = sqrt(1.0f - y * y);
-      return glm::vec4(r * cos(angle), y, r * sin(angle), t);
+      float phi = t * 3.14159f * 2.0f;
+      float cosTheta = 1.0f - 2.0f * t;
+      float sinTheta = std::sqrt(1.0f - cosTheta * cosTheta);
+      return glm::vec4(sinTheta * std::cos(phi), cosTheta,
+                       sinTheta * std::sin(phi), 1.0f);
     };
+    pParams.customMesh = std::make_shared<Mesh>(
+        ModelFactory::CreateQuad(renderContext->GetDevice(), 1.0f));
     particleSystem.AddComponent<ParticleSystemComponent>(pParams);
-    particleSystem.GetTransform().Position = glm::vec3(0, 2.0f, -2.0f);
+    particleSystem.GetTransform().Position = glm::vec3(0, 1.0f, 0);
 
     activeScene->OnStart();
     ConsolePanel::LogInfo("Scene loaded (%zu entities)",
@@ -381,16 +352,6 @@ private:
       camera.ToggleProjection();
     }
     pKeyPressed = pPressed;
-
-    bool mPressed = window->IsKeyPressed(GLFW_KEY_M);
-    if (mPressed && !mKeyPressed) {
-      currentMatIndex = (currentMatIndex + 1) % materials.size();
-      if (playerEntity.HasComponent<MeshRendererComponent>()) {
-        auto &rend = playerEntity.GetComponent<MeshRendererComponent>();
-        rend.materialOverride = materials[currentMatIndex];
-      }
-    }
-    mKeyPressed = mPressed;
   }
 
   void Update(float dt) {
