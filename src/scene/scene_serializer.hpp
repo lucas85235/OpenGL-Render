@@ -11,7 +11,7 @@
 
 class SceneSerializer {
 public:
-  static bool SaveToFile(const Scene &scene, const std::string &filepath) {
+  static bool SaveToFile(Scene &scene, const std::string &filepath) {
     std::ofstream file(filepath);
     if (!file.is_open()) {
       std::cerr << "[SceneSerializer] Failed to open file for writing: "
@@ -24,14 +24,16 @@ public:
 
     file << "scene {\n";
 
-    const auto &entities = scene.GetEntities();
-    for (const auto &entity : entities) {
-      WriteEntity(file, *entity, 1);
-    }
+    size_t entityCount = 0;
+    scene.GetRegistry().each([&](auto entityID) {
+      Entity entity{entityID, &scene};
+      WriteEntity(file, entity, 1);
+      entityCount++;
+    });
 
     file << "}\n";
 
-    std::cout << "[SceneSerializer] Saved scene with " << entities.size()
+    std::cout << "[SceneSerializer] Saved scene with " << entityCount
               << " entities to: " << filepath << std::endl;
     return true;
   }
@@ -79,7 +81,9 @@ public:
       } else if (inEntity && !inTransform && line == "}") {
         // End of entity, create it
         auto entity = scene.CreateEntity(currentEntityName);
-        entity->transform = currentTransform;
+        entity.GetTransform().Position = currentTransform.Position;
+        entity.GetTransform().Rotation = currentTransform.Rotation;
+        entity.GetTransform().Scale = currentTransform.Scale;
         inEntity = false;
       } else if (inTransform) {
         ParseTransformLine(line, currentTransform);
@@ -93,17 +97,17 @@ public:
   }
 
 private:
-  static void WriteEntity(std::ostream &out, const Entity &entity, int indent) {
+  static void WriteEntity(std::ostream &out, Entity entity, int indent) {
     std::string tab(indent * 2, ' ');
 
     out << tab << "entity \"" << entity.GetName() << "\" {\n";
 
-    WriteTransform(out, entity.transform, indent + 1);
+    WriteTransform(out, entity.GetTransform(), indent + 1);
 
     out << tab << "}\n";
   }
 
-  static void WriteTransform(std::ostream &out, const Transform &t,
+  static void WriteTransform(std::ostream &out, const TransformComponent &t,
                              int indent) {
     std::string tab(indent * 2, ' ');
 

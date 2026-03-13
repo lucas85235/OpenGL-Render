@@ -166,6 +166,7 @@ add_executable(${EXECUTABLE_NAME} ${SOURCES} ${IMGUI_SOURCES})
 target_include_directories(${EXECUTABLE_NAME} PRIVATE 
     ${CMAKE_SOURCE_DIR}
     ${IMGUI_DIR}
+    ${CMAKE_SOURCE_DIR}/src/vendor
     ${GLEW_INCLUDE_DIRS}
     ${GLM_INCLUDE_DIRS}
     ${ASSIMP_INCLUDE_DIRS}

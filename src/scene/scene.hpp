@@ -1,169 +1,245 @@
 #ifndef SCENE_SYSTEM_HPP
 #define SCENE_SYSTEM_HPP
 
-#include <algorithm>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include <entt/entt.hpp>
 #include <iostream>
 #include <memory>
 #include <string>
-#include <vector>
 
-#include "../renderer/renderer.hpp" // Para os componentes de render saberem o que é renderer
+#include "../renderer/renderer.hpp"
+#include "components.hpp"
+#include "particle_system.hpp"
 
-// Forward declarations
 class Entity;
-class Scene;
 
 // ==========================================
-// 1. COMPONENT (Base)
-// ==========================================
-class Component {
-protected:
-  Entity *entity; // Referência ao dono
-
-public:
-  virtual ~Component() {}
-
-  void SetEntity(Entity *e) { entity = e; }
-  Entity *GetEntity() { return entity; }
-
-  // Ciclo de vida
-  virtual void OnStart() {}
-  virtual void OnUpdate(float deltaTime) {}
-  virtual void OnRender(Renderer &renderer) {}
-};
-
-// ==========================================
-// 2. TRANSFORM (Dados espaciais)
-// ==========================================
-struct Transform {
-  glm::vec3 Position = glm::vec3(0.0f);
-  glm::vec3 Rotation = glm::vec3(0.0f); // Euler angles
-  glm::vec3 Scale = glm::vec3(1.0f);
-
-  glm::mat4 GetMatrix() const {
-    glm::mat4 model = glm::mat4(1.0f);
-    model = glm::translate(model, Position);
-    model = glm::rotate(model, glm::radians(Rotation.x), glm::vec3(1, 0, 0));
-    model = glm::rotate(model, glm::radians(Rotation.y), glm::vec3(0, 1, 0));
-    model = glm::rotate(model, glm::radians(Rotation.z), glm::vec3(0, 0, 1));
-    model = glm::scale(model, Scale);
-    return model;
-  }
-};
-
-// ==========================================
-// 3. ENTITY (O Objeto)
-// ==========================================
-class Entity {
-private:
-  std::vector<std::shared_ptr<Component>> components;
-  std::string name;
-  bool active;
-
-public:
-  Transform transform; // Todo objeto tem transform por padrão
-
-  Entity(const std::string &name) : name(name), active(true) {}
-
-  void Start() {
-    for (auto &c : components)
-      c->OnStart();
-  }
-
-  void Update(float dt) {
-    if (!active)
-      return;
-    for (auto &c : components)
-      c->OnUpdate(dt);
-  }
-
-  void Render(Renderer &renderer) {
-    if (!active)
-      return;
-    for (auto &c : components)
-      c->OnRender(renderer);
-  }
-
-  // Sistema de Componentes (Estilo Unity)
-  template <typename T, typename... Args>
-  std::shared_ptr<T> AddComponent(Args &&...args) {
-    // Cria o componente
-    auto component = std::make_shared<T>(std::forward<Args>(args)...);
-    component->SetEntity(this);
-    components.push_back(component);
-
-    // Se a cena já começou, poderíamos chamar OnStart() aqui
-    return component;
-  }
-
-  template <typename T> std::shared_ptr<T> GetComponent() {
-    for (auto &component : components) {
-      if (std::dynamic_pointer_cast<T>(component))
-        return std::dynamic_pointer_cast<T>(component);
-    }
-    return nullptr;
-  }
-
-  std::string GetName() const { return name; }
-};
-
-// ==========================================
-// 4. SCENE (Gerenciador)
+// SCENE (Gerenciador)
 // ==========================================
 class Scene {
 private:
-  std::vector<std::shared_ptr<Entity>> entities;
+  entt::registry registry;
   std::string name = "Untitled";
 
+  friend class Entity;
+  // TODO serializers might need friend access or views
+
 public:
+  Scene() = default;
+  ~Scene() = default;
+
   void SetName(const std::string &n) { name = n; }
   std::string GetName() const { return name; }
 
-  std::shared_ptr<Entity> CreateEntity(const std::string &name = "Entity") {
-    auto entity = std::make_shared<Entity>(name);
-    entities.push_back(entity);
-    return entity;
+  Entity CreateEntity(const std::string &name = "Entity");
+  void DestroyEntity(Entity entity);
+
+  // We likely don't need FindEntity by name often in ECS, but keep it for
+  // compatibility Returns empty entity if not found
+  Entity FindEntity(const std::string &name);
+
+  void Clear() { registry.clear(); }
+
+  size_t GetEntityCount() const {
+    return registry.storage<entt::entity>()->size();
   }
-
-  std::shared_ptr<Entity> FindEntity(const std::string &name) {
-    for (auto &e : entities) {
-      if (e->GetName() == name)
-        return e;
-    }
-    return nullptr;
-  }
-
-  void RemoveEntity(const std::string &name) {
-    entities.erase(
-        std::remove_if(entities.begin(), entities.end(),
-                       [&name](const auto &e) { return e->GetName() == name; }),
-        entities.end());
-  }
-
-  void Clear() { entities.clear(); }
-
-  const std::vector<std::shared_ptr<Entity>> &GetEntities() const {
-    return entities;
-  }
-
-  size_t GetEntityCount() const { return entities.size(); }
 
   void OnStart() {
-    for (auto &e : entities)
-      e->Start();
+    // Initialization could happen here if necessary for components like Floater
   }
 
-  void OnUpdate(float dt) {
-    for (auto &e : entities)
-      e->Update(dt);
+  void OnUpdate(float dt);
+
+  void OnRender(Renderer &renderer);
+
+  entt::registry &GetRegistry() { return registry; }
+};
+
+// ==========================================
+// ENTITY (O Objeto Wrapper)
+// ==========================================
+class Entity {
+private:
+  entt::entity entityHandle{entt::null};
+  Scene *scene = nullptr;
+
+public:
+  Entity() = default;
+  Entity(entt::entity handle, Scene *scene)
+      : entityHandle(handle), scene(scene) {}
+
+  template <typename T, typename... Args> T &AddComponent(Args &&...args) {
+    if (HasComponent<T>()) {
+      std::cerr << "[Warning] Entity already has component!\n";
+    }
+    return scene->registry.emplace<T>(entityHandle,
+                                      std::forward<Args>(args)...);
   }
 
-  void OnRender(Renderer &renderer) {
-    for (auto &e : entities)
-      e->Render(renderer);
+  template <typename T> T &GetComponent() {
+    return scene->registry.get<T>(entityHandle);
+  }
+
+  template <typename T> bool HasComponent() const {
+    return scene->registry.any_of<T>(entityHandle);
+  }
+
+  template <typename T> void RemoveComponent() {
+    scene->registry.erase<T>(entityHandle);
+  }
+
+  operator bool() const {
+    return entityHandle != entt::null && scene != nullptr;
+  }
+  operator entt::entity() const { return entityHandle; }
+  bool operator==(const Entity &other) const {
+    return entityHandle == other.entityHandle && scene == other.scene;
+  }
+  bool operator!=(const Entity &other) const { return !(*this == other); }
+
+  std::string GetName() { return GetComponent<TagComponent>().Tag; }
+
+  TransformComponent &GetTransform() {
+    return GetComponent<TransformComponent>();
   }
 };
+
+// Scene Implementations
+inline Entity Scene::CreateEntity(const std::string &name) {
+  Entity entity = {registry.create(), this};
+  entity.AddComponent<TransformComponent>();
+  entity.AddComponent<TagComponent>(name.empty() ? "Entity" : name);
+  return entity;
+}
+
+inline void Scene::DestroyEntity(Entity entity) { registry.destroy(entity); }
+
+inline Entity Scene::FindEntity(const std::string &name) {
+  auto view = registry.view<TagComponent>();
+  for (auto entity : view) {
+    const auto &tag = view.get<TagComponent>(entity);
+    if (tag.Tag == name) {
+      return Entity{entity, this};
+    }
+  }
+  return Entity{};
+}
+
+inline void Scene::OnUpdate(float dt) {
+  // Update Rotator Scripts
+  auto rotView = registry.view<TransformComponent, RotatorScriptComponent>();
+  for (auto entity : rotView) {
+    auto [transform, rotator] =
+        rotView.get<TransformComponent, RotatorScriptComponent>(entity);
+    transform.Rotation += rotator.rotationSpeed * dt;
+  }
+
+  // Update Floater Scripts
+  auto floatView = registry.view<TransformComponent, FloaterScriptComponent>();
+  for (auto entity : floatView) {
+    auto [transform, floater] =
+        floatView.get<TransformComponent, FloaterScriptComponent>(entity);
+    if (!floater.initialized) {
+      floater.startY = transform.Position.y;
+      floater.initialized = true;
+    }
+    floater.time += dt;
+    transform.Position.y =
+        floater.startY +
+        std::sin(floater.time * floater.frequency) * floater.amplitude;
+  }
+}
+
+inline void Scene::OnRender(Renderer &renderer) {
+  // Render Simple Meshes
+  auto simpleMeshView =
+      registry.view<TransformComponent, SimpleMeshRendererComponent>();
+  for (auto entity : simpleMeshView) {
+    auto [transform, meshComp] =
+        simpleMeshView.get<TransformComponent, SimpleMeshRendererComponent>(
+            entity);
+    if (meshComp.mesh) {
+      renderer.SubmitMesh(*meshComp.mesh, transform.GetMatrix());
+    }
+  }
+
+  // Render PBR Meshes
+  auto meshView = registry.view<TransformComponent, MeshRendererComponent>();
+  for (auto entity : meshView) {
+    auto [transform, meshComp] =
+        meshView.get<TransformComponent, MeshRendererComponent>(entity);
+    if (meshComp.model) {
+      if (meshComp.materialOverride) {
+        meshComp.model->SetMaterialAll(meshComp.materialOverride);
+      }
+      renderer.Submit(meshComp.model, transform.GetMatrix());
+    }
+  }
+
+  // Submit Directional Lights
+  auto dirLightView =
+      registry.view<TransformComponent, DirectionalLightComponent>();
+  for (auto entity : dirLightView) {
+    auto [transform, lightComp] =
+        dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+    DirectionalLight lightInfo;
+    lightInfo.color = lightComp.color;
+    lightInfo.intensity = lightComp.intensity;
+
+    // Use entity position as direction if valid, otherwise use default
+    glm::vec3 pos = transform.Position;
+    float len = glm::length(pos);
+    if (len > 0.001f) {
+      lightInfo.direction = glm::normalize(-pos);
+    } else {
+      lightInfo.direction = glm::normalize(lightComp.direction);
+    }
+    renderer.SubmitDirectionalLight(lightInfo);
+  }
+
+  // Submit Point Lights
+  auto pointLightView =
+      registry.view<TransformComponent, PointLightComponent>();
+  for (auto entity : pointLightView) {
+    auto [transform, lightComp] =
+        pointLightView.get<TransformComponent, PointLightComponent>(entity);
+    PointLightData lightInfo;
+    lightInfo.position = transform.Position;
+    lightInfo.color = lightComp.color;
+    lightInfo.intensity = lightComp.intensity;
+    lightInfo.radius = lightComp.radius;
+    renderer.SubmitPointLight(lightInfo);
+  }
+
+  // Submit Particle Systems
+  auto particleView =
+      registry.view<TransformComponent, ParticleSystemComponent>();
+  for (auto entity : particleView) {
+    auto [transform, particle] =
+        particleView.get<TransformComponent, ParticleSystemComponent>(entity);
+    if (!particle.initialized && renderer.GetDevice()) {
+      particle.CreateMappingTexture(renderer.GetDevice());
+      particle.initialized = true;
+    }
+
+    if (particle.initialized && particle.mappingTexture) {
+      ParticleRenderCommand pCmd;
+      pCmd.amount = particle.params.amount;
+      pCmd.textureWidth = particle.textureWidth;
+      pCmd.mappingTexture = particle.mappingTexture;
+      pCmd.material = particle.params.material;
+      pCmd.customMesh = particle.params.customMesh;
+      pCmd.transform = transform.GetMatrix();
+
+      pCmd.velocity = particle.params.velocity;
+      pCmd.baseColor = particle.params.baseColor;
+      pCmd.size = particle.params.size;
+      pCmd.radius = particle.params.radius;
+      pCmd.angle = particle.params.angle;
+      pCmd.center = particle.params.center;
+
+      renderer.SubmitParticles(pCmd);
+    }
+  }
+}
 
 #endif

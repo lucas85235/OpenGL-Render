@@ -4,7 +4,6 @@
 #include "../renderer/material.hpp"
 #include "../renderer/mesh.hpp"
 #include "../renderer/renderer.hpp"
-#include "scene.hpp"
 #include <functional>
 #include <memory>
 #include <vector>
@@ -30,8 +29,7 @@ struct ParticleSystemParams {
   };
 };
 
-class ParticleSystemComponent : public Component {
-private:
+struct ParticleSystemComponent {
   ParticleSystemParams params;
   std::shared_ptr<Texture> mappingTexture;
   int textureWidth = 0;
@@ -62,36 +60,9 @@ private:
     }
   }
 
-public:
+  ParticleSystemComponent() = default;
+  ParticleSystemComponent(const ParticleSystemComponent &) = default;
   ParticleSystemComponent(const ParticleSystemParams &p) : params(p) {}
-
-  void OnRender(Renderer &renderer) override {
-    if (!initialized && renderer.GetDevice()) {
-      CreateMappingTexture(renderer.GetDevice());
-      initialized = true;
-    }
-
-    if (initialized && mappingTexture) {
-      // Create a ParticleRenderCommand
-      ParticleRenderCommand pCmd;
-      pCmd.amount = params.amount;
-      pCmd.textureWidth = textureWidth;
-      pCmd.mappingTexture = mappingTexture;
-      pCmd.material = params.material;
-      pCmd.customMesh = params.customMesh;
-      pCmd.transform = entity->transform.GetMatrix();
-
-      // Additional properties
-      pCmd.velocity = params.velocity;
-      pCmd.baseColor = params.baseColor;
-      pCmd.size = params.size;
-      pCmd.radius = params.radius;
-      pCmd.angle = params.angle;
-      pCmd.center = params.center;
-
-      renderer.SubmitParticles(pCmd);
-    }
-  }
 
   // Setters/Getters
   void SetParams(const ParticleSystemParams &p) {

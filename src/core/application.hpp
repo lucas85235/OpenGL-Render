@@ -52,7 +52,7 @@ private:
   // Input Control
   bool mKeyPressed = false;
   int currentMatIndex = 0;
-  std::shared_ptr<Entity> playerEntity;
+  Entity playerEntity;
 
   // Editor UI
   EditorUI editorUI;
@@ -230,25 +230,27 @@ private:
       if (model->GetMeshCount() > 0)
         materials.push_back(model->GetMesh(0).GetMaterial());
 
-      auto renderComp = playerEntity->AddComponent<MeshRenderer>(model);
-      renderComp->SetMaterial(materials[5]);
+      auto &renderComp =
+          playerEntity.AddComponent<MeshRendererComponent>(model);
+      renderComp.materialOverride = materials[5];
       ConsolePanel::LogInfo("Model loaded: DamagedHelmet (%zu meshes)",
                             model->GetMeshCount());
     } catch (...) {
       ConsolePanel::LogError("Failed to load model");
     }
 
-    playerEntity->AddComponent<RotatorScript>(glm::vec3(0, 30, 0));
-    playerEntity->transform.Position = glm::vec3(0, 0.5f, 0);
-    playerEntity->transform.Rotation = glm::vec3(0, 0, 0);
+    playerEntity.AddComponent<RotatorScriptComponent>(glm::vec3(0, 30, 0));
+    playerEntity.GetTransform().Position = glm::vec3(0, 0.5f, 0);
+    playerEntity.GetTransform().Rotation = glm::vec3(0, 0, 0);
 
     auto floor = activeScene->CreateEntity("Floor");
     auto floorMesh = std::make_shared<Mesh>(
         ModelFactory::CreatePlane(renderContext->GetDevice(), 1.0f));
-    auto floorRend = floor->AddComponent<SimpleMeshRenderer>(floorMesh);
-    floorRend->SetMaterial(copper);
-    floor->transform.Scale = glm::vec3(10.0f);
-    floor->transform.Position = glm::vec3(0, -1.0f, 0);
+    auto &floorRend =
+        floor.AddComponent<SimpleMeshRendererComponent>(floorMesh);
+    floorRend.mesh->SetMaterial(copper);
+    floor.GetTransform().Scale = glm::vec3(10.0f);
+    floor.GetTransform().Position = glm::vec3(0, -1.0f, 0);
 
     envMap.LoadFromHDR("models/golden_gate_hills_4k.hdr");
     if (envMap.IsValid()) {
@@ -258,19 +260,19 @@ private:
     }
 
     auto sun = activeScene->CreateEntity("Sun");
-    sun->AddComponent<DirectionalLightComponent>(glm::vec3(1.0f, 0.9f, 0.8f),
-                                                 2.0f);
+    sun.AddComponent<DirectionalLightComponent>(glm::vec3(1.0f, 0.9f, 0.8f),
+                                                2.0f);
 
     auto redLight = activeScene->CreateEntity("RedLight");
-    redLight->AddComponent<PointLightComponent>(glm::vec3(1, 0, 0), 30.0f,
-                                                10.0f);
-    redLight->transform.Position = glm::vec3(-2, 1, -2);
+    redLight.AddComponent<PointLightComponent>(glm::vec3(1, 0, 0), 30.0f,
+                                               10.0f);
+    redLight.GetTransform().Position = glm::vec3(-2, 1, -2);
 
     auto blueLight = activeScene->CreateEntity("BlueLight");
-    blueLight->AddComponent<PointLightComponent>(glm::vec3(0, 0.5f, 1), 30.0f,
-                                                 10.0f);
-    blueLight->transform.Position = glm::vec3(2, 1, 0);
-    blueLight->AddComponent<FloaterScript>(1.0f, 2.0f);
+    blueLight.AddComponent<PointLightComponent>(glm::vec3(0, 0.5f, 1), 30.0f,
+                                                10.0f);
+    blueLight.GetTransform().Position = glm::vec3(2, 1, 0);
+    blueLight.AddComponent<FloaterScriptComponent>(1.0f, 2.0f);
 
     auto particleSystem = activeScene->CreateEntity("Particles");
     ParticleSystemParams pParams;
@@ -284,8 +286,8 @@ private:
       float r = sqrt(1.0f - y * y);
       return glm::vec4(r * cos(angle), y, r * sin(angle), t);
     };
-    particleSystem->AddComponent<ParticleSystemComponent>(pParams);
-    particleSystem->transform.Position = glm::vec3(0, 2.0f, -2.0f);
+    particleSystem.AddComponent<ParticleSystemComponent>(pParams);
+    particleSystem.GetTransform().Position = glm::vec3(0, 2.0f, -2.0f);
 
     activeScene->OnStart();
     ConsolePanel::LogInfo("Scene loaded (%zu entities)",
@@ -319,8 +321,10 @@ private:
     bool mPressed = window->IsKeyPressed(GLFW_KEY_M);
     if (mPressed && !mKeyPressed) {
       currentMatIndex = (currentMatIndex + 1) % materials.size();
-      if (auto rend = playerEntity->GetComponent<MeshRenderer>())
-        rend->SetMaterial(materials[currentMatIndex]);
+      if (playerEntity.HasComponent<MeshRendererComponent>()) {
+        auto &rend = playerEntity.GetComponent<MeshRendererComponent>();
+        rend.materialOverride = materials[currentMatIndex];
+      }
     }
     mKeyPressed = mPressed;
   }

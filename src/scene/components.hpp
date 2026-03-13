@@ -2,131 +2,109 @@
 #define COMPONENTS_HPP
 
 #include "../renderer/model.hpp"
-#include "scene.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <string>
+
+// ==========================================
+// 1. TRANSFORM (Dados espaciais)
+// ==========================================
+struct TransformComponent {
+  glm::vec3 Position = glm::vec3(0.0f);
+  glm::vec3 Rotation = glm::vec3(0.0f); // Euler angles
+  glm::vec3 Scale = glm::vec3(1.0f);
+
+  TransformComponent() = default;
+  TransformComponent(const TransformComponent &) = default;
+  TransformComponent(const glm::vec3 &translation) : Position(translation) {}
+
+  glm::mat4 GetMatrix() const {
+    glm::mat4 model = glm::mat4(1.0f);
+    model = glm::translate(model, Position);
+    model = glm::rotate(model, glm::radians(Rotation.x), glm::vec3(1, 0, 0));
+    model = glm::rotate(model, glm::radians(Rotation.y), glm::vec3(0, 1, 0));
+    model = glm::rotate(model, glm::radians(Rotation.z), glm::vec3(0, 0, 1));
+    model = glm::scale(model, Scale);
+    return model;
+  }
+};
+
+// ==========================================
+// TAG (Nome da Entidade)
+// ==========================================
+struct TagComponent {
+  std::string Tag;
+
+  TagComponent() = default;
+  TagComponent(const TagComponent &) = default;
+  TagComponent(const std::string &tag) : Tag(tag) {}
+};
 
 // Componente para Renderizar Modelos 3D
-class MeshRenderer : public Component {
-private:
+struct MeshRendererComponent {
   std::shared_ptr<Model> model;
   std::shared_ptr<Material> materialOverride;
 
-public:
-  MeshRenderer(std::shared_ptr<Model> m)
+  MeshRendererComponent() = default;
+  MeshRendererComponent(const MeshRendererComponent &) = default;
+  MeshRendererComponent(std::shared_ptr<Model> m)
       : model(m), materialOverride(nullptr) {}
-
-  void SetMaterial(std::shared_ptr<Material> mat) { materialOverride = mat; }
-
-  void OnRender(Renderer &renderer) override {
-    if (model) {
-      // Se tiver override de material, aplicamos (lógica que você pode
-      // aprimorar no Renderer) Por enquanto, vamos assumir que o Renderer usa o
-      // material do Model ou aplicamos manualmente aqui se tiver acesso
-
-      if (materialOverride) {
-        model->SetMaterialAll(materialOverride);
-      }
-
-      renderer.Submit(model, entity->transform.GetMatrix());
-    }
-  }
 };
 
 // Componente para Mesh Simples (Chão, etc)
-class SimpleMeshRenderer : public Component {
-private:
-  std::shared_ptr<Mesh> mesh; // Cópia ou ptr
+struct SimpleMeshRendererComponent {
+  std::shared_ptr<Mesh> mesh;
 
-public:
-  SimpleMeshRenderer(std::shared_ptr<Mesh> m) : mesh(m) {}
-
-  void SetMaterial(std::shared_ptr<Material> mat) { mesh->SetMaterial(mat); }
-
-  void OnRender(Renderer &renderer) override {
-    renderer.SubmitMesh(*mesh, entity->transform.GetMatrix());
-  }
+  SimpleMeshRendererComponent() = default;
+  SimpleMeshRendererComponent(const SimpleMeshRendererComponent &) = default;
+  SimpleMeshRendererComponent(std::shared_ptr<Mesh> m) : mesh(m) {}
 };
 
 // Componente de Script para Girar Objetos
-class RotatorScript : public Component {
-private:
-  glm::vec3 rotationSpeed;
+struct RotatorScriptComponent {
+  glm::vec3 rotationSpeed = glm::vec3(0.0f);
 
-public:
-  RotatorScript(glm::vec3 speed) : rotationSpeed(speed) {}
-
-  void OnUpdate(float dt) override {
-    entity->transform.Rotation += rotationSpeed * dt;
-  }
+  RotatorScriptComponent() = default;
+  RotatorScriptComponent(const RotatorScriptComponent &) = default;
+  RotatorScriptComponent(glm::vec3 speed) : rotationSpeed(speed) {}
 };
 
 // Script para fazer o objeto flutuar (Senoide)
-class FloaterScript : public Component {
-private:
-  float amplitude;
-  float frequency;
-  float startY;
-  float time;
+struct FloaterScriptComponent {
+  float amplitude = 0.5f;
+  float frequency = 1.0f;
+  float startY = 0.0f;
+  float time = 0.0f;
+  bool initialized = false;
 
-public:
-  FloaterScript(float amp = 0.5f, float freq = 1.0f)
-      : amplitude(amp), frequency(freq), startY(0), time(0) {}
-
-  void OnStart() override { startY = entity->transform.Position.y; }
-
-  void OnUpdate(float dt) override {
-    time += dt;
-    float newY = startY + std::sin(time * frequency) * amplitude;
-    entity->transform.Position.y = newY;
-  }
+  FloaterScriptComponent() = default;
+  FloaterScriptComponent(const FloaterScriptComponent &) = default;
+  FloaterScriptComponent(float amp, float freq)
+      : amplitude(amp), frequency(freq), startY(0), time(0),
+        initialized(false) {}
 };
 
-class DirectionalLightComponent : public Component {
-public:
+struct DirectionalLightComponent {
   glm::vec3 color = glm::vec3(1.0f);
   float intensity = 1.0f;
   glm::vec3 direction = glm::vec3(-0.2f, -1.0f, -0.3f); // Default direction
 
-  DirectionalLightComponent(glm::vec3 col = glm::vec3(1.0f),
-                            float intens = 1.0f)
+  DirectionalLightComponent() = default;
+  DirectionalLightComponent(const DirectionalLightComponent &) = default;
+  DirectionalLightComponent(glm::vec3 col, float intens = 1.0f)
       : color(col), intensity(intens) {}
-
-  void OnRender(Renderer &renderer) override {
-    DirectionalLight light;
-    light.color = color;
-    light.intensity = intensity;
-
-    // Use entity position as direction if valid, otherwise use default
-    glm::vec3 pos = entity->transform.Position;
-    float len = glm::length(pos);
-    if (len > 0.001f) {
-      light.direction = glm::normalize(-pos);
-    } else {
-      light.direction = glm::normalize(direction);
-    }
-
-    renderer.SubmitDirectionalLight(light);
-  }
 };
 
 // Componente de Luz Pontual (Lâmpada)
-class PointLightComponent : public Component {
-public:
-  glm::vec3 color;
-  float intensity;
-  float radius;
+struct PointLightComponent {
+  glm::vec3 color = glm::vec3(1.0f);
+  float intensity = 10.0f;
+  float radius = 10.0f;
 
+  PointLightComponent() = default;
+  PointLightComponent(const PointLightComponent &) = default;
   PointLightComponent(glm::vec3 col, float intens = 10.0f, float rad = 10.0f)
       : color(col), intensity(intens), radius(rad) {}
-
-  void OnRender(Renderer &renderer) override {
-    PointLightData light;
-    light.position = entity->transform.Position; // Pega posição da entidade
-    light.color = color;
-    light.intensity = intensity;
-    light.radius = radius;
-
-    renderer.SubmitPointLight(light);
-  }
 };
 
 #endif
