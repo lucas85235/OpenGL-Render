@@ -12,14 +12,21 @@
 #include "../editor/example_panel.hpp"
 #include "../editor/hierarchy_panel.hpp"
 #include "../editor/inspector_panel.hpp"
+#include "../editor/post_process_panel.hpp"
 #include "../editor/viewport_panel.hpp"
 #include "../renderer/framebuffer.hpp"
 #include "../renderer/model_factory.hpp"
 #include "../renderer/pbr_utils.hpp"
 #include "../renderer/render_context.hpp"
+#include "../renderer/render_graph/bloom_pass_node.hpp"
+#include "../renderer/render_graph/grid_pass_node.hpp"
+#include "../renderer/render_graph/outline_pass_node.hpp"
 #include "../renderer/render_graph/pbr_pass_node.hpp"
+#include "../renderer/render_graph/picking_pass_node.hpp"
 #include "../renderer/render_graph/render_graph.hpp"
+#include "../renderer/render_graph/shadow_pass_node.hpp"
 #include "../renderer/render_graph/skybox_pass_node.hpp"
+#include "../renderer/render_graph/tonemap_pass_node.hpp"
 #include "../scene/components.hpp"
 #include "../scene/particle_system.hpp"
 #include "camera.hpp"
@@ -87,8 +94,12 @@ private:
   // Core Systems
   Renderer renderer;
 
-  // Scene framebuffer (3D content renders here, displayed in viewport panel)
+  // Scene framebuffer (3D content renders here in HDR)
   std::unique_ptr<FrameBuffer> sceneFB;
+
+  // Display framebuffer: TonemapPass output (ACES + gamma). ViewportPanel
+  // samples this one so we don't dump raw HDR into the ImGui image.
+  std::unique_ptr<FrameBuffer> displayFB;
 
   std::unique_ptr<RenderGraph> renderGraph;
 
@@ -112,6 +123,22 @@ private:
   ViewportPanel *viewportPanel = nullptr;
   HierarchyPanel *hierarchyPanel = nullptr;
   InspectorPanel *inspectorPanel = nullptr;
+  GridPassNode *gridPassNode = nullptr;
+  PickingPassNode *pickingPassNode = nullptr;
+  OutlinePassNode *outlinePassNode = nullptr;
+  PBRPassNode *pbrPassNode = nullptr;
+  // Shadow pass is NOT in the render graph — its Execute opens its own render
+  // pass on a dedicated FBO, so it runs from RenderScene before the scene
+  // pass begins. Kept as a direct owner here.
+  std::unique_ptr<ShadowPassNode> shadowPassNode;
+  // Bloom runs AFTER the scene render pass ends — it ping-pongs its own mip
+  // FBOs and finally additively composites into sceneFB. Same ownership
+  // pattern as shadow (outside the RenderGraph).
+  std::unique_ptr<BloomPassNode> bloomPassNode;
+  // Tonemap runs as the final pass after bloom — reads sceneFB (HDR),
+  // writes to displayFB (LDR post ACES + gamma). Same ownership pattern as
+  // shadow/bloom (outside the RenderGraph).
+  std::unique_ptr<TonemapPassNode> tonemapPassNode;
 
 public:
   Application(const std::string &title, int width, int height) {
@@ -136,12 +163,26 @@ public:
     ProcessInput(deltaTime);
     Update(deltaTime);
 
+    // If a click landed last frame, enable the picking pass for this frame's
+    // scene render so the picking FBO gets populated before we read it.
+    bool pickingActiveThisFrame = false;
+    if (viewportPanel && viewportPanel->HasPendingPick() && pickingPassNode) {
+      *pickingPassNode->GetEnabledPtr() = true;
+      pickingActiveThisFrame = true;
+    }
+
     auto rhiDevice = renderContext->GetDevice();
     if (!rhiDevice->BeginFrame())
       return;
 
     // Render 3D scene into the scene framebuffer
     RenderScene();
+
+    if (pickingActiveThisFrame) {
+      ResolvePick();
+      *pickingPassNode->GetEnabledPtr() = false;
+      viewportPanel->ClearPendingPick();
+    }
 
     // Render editor UI (which displays the scene via ViewportPanel)
     editorUI.BeginFrame();
@@ -191,17 +232,12 @@ private:
     ConsolePanel::LogInfo("Scene framebuffer created (%dx%d)",
                           window->GetWidth(), window->GetHeight());
 
-    // Mouse: only process when right-clicking
-    window->SetMouseMoveCallback([this](double xOffset, double yOffset) {
-      if (window->IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT)) {
-        camera.ProcessMouse(static_cast<float>(xOffset),
-                            static_cast<float>(yOffset));
-      }
-    });
-
-    window->SetScrollCallback([this](double yOffset) {
-      camera.ProcessScroll(static_cast<float>(yOffset));
-    });
+    displayFB = std::make_unique<FrameBuffer>(rhiDevice, window->GetWidth(),
+                                              window->GetHeight());
+    if (!displayFB->Init()) {
+      ConsolePanel::LogError("Failed to create display framebuffer");
+      return false;
+    }
 
     // Load shaders
     auto shaderMgr = renderContext->GetShaderManager();
@@ -240,9 +276,52 @@ private:
     // Setup Environment Map
     envMap.Initialize(rhiDevice, fileSystem.get());
 
+    shadowPassNode = std::make_unique<ShadowPassNode>();
+    if (!shadowPassNode->Initialize(renderContext.get())) {
+      ConsolePanel::LogWarn("ShadowPass failed to initialize — shadows disabled");
+    }
+
+    bloomPassNode = std::make_unique<BloomPassNode>();
+    if (!bloomPassNode->Initialize(renderContext.get())) {
+      ConsolePanel::LogWarn("BloomPass failed to initialize — bloom disabled");
+      bloomPassNode.reset();
+    }
+
+    tonemapPassNode = std::make_unique<TonemapPassNode>();
+    if (!tonemapPassNode->Initialize(renderContext.get())) {
+      ConsolePanel::LogWarn("TonemapPass failed to initialize — output will be raw HDR");
+      tonemapPassNode.reset();
+    }
+
     renderGraph = std::make_unique<RenderGraph>(renderContext.get());
     renderGraph->AddPass(std::make_unique<SkyboxPassNode>(&envMap));
-    renderGraph->AddPass(std::make_unique<PBRPassNode>(&renderer));
+    {
+      auto pbrNode = std::make_unique<PBRPassNode>(&renderer);
+      pbrPassNode = pbrNode.get();
+      renderGraph->AddPass(std::move(pbrNode));
+    }
+    if (pbrPassNode && shadowPassNode) {
+      pbrPassNode->SetShadowPass(shadowPassNode->GetPass());
+      pbrPassNode->SetShadowEnabledPtr(shadowPassNode->GetEnabledPtr());
+    }
+    {
+      auto outlineNode = std::make_unique<OutlinePassNode>();
+      outlinePassNode = outlineNode.get();
+      renderGraph->AddPass(std::move(outlineNode));
+    }
+    {
+      auto gridNode = std::make_unique<GridPassNode>();
+      gridPassNode = gridNode.get();
+      renderGraph->AddPass(std::move(gridNode));
+    }
+    {
+      // Picking pass is disabled by default — it targets its own FBO and
+      // would corrupt the active scene render pass if run inline. Task 3.2
+      // will invoke PickingPass::Execute directly on click.
+      auto pickingNode = std::make_unique<PickingPassNode>();
+      pickingPassNode = pickingNode.get();
+      renderGraph->AddPass(std::move(pickingNode));
+    }
 
     // Initialize Editor UI
     if (!editorUI.Init(window->GetNativeWindow(), rhiDevice)) {
@@ -253,7 +332,14 @@ private:
     // Register panels
     viewportPanel = editorUI.AddPanel<ViewportPanel>();
     viewportPanel->SetFrameBuffer(sceneFB.get());
+    viewportPanel->SetDisplayFrameBuffer(displayFB.get());
+    if (tonemapPassNode) {
+      viewportPanel->SetDisplayEnabledPtr(tonemapPassNode->GetEnabledPtr());
+    }
+    viewportPanel->SetCamera(&camera);
     viewportPanel->SetResizeCallback([this](int w, int h) {
+      if (displayFB)
+        displayFB->Resize(w, h);
       ConsolePanel::LogInfo("Viewport resized to %dx%d", w, h);
     });
 
@@ -261,6 +347,37 @@ private:
     editorUI.AddPanel<ExamplePanel>();
     hierarchyPanel = editorUI.AddPanel<HierarchyPanel>();
     inspectorPanel = editorUI.AddPanel<InspectorPanel>();
+    {
+      auto postProcessPanel = editorUI.AddPanel<PostProcessPanel>();
+      if (bloomPassNode) {
+        postProcessPanel->SetBloom(bloomPassNode->GetPass(),
+                                   bloomPassNode->GetEnabledPtr());
+      }
+      if (tonemapPassNode) {
+        postProcessPanel->SetTonemap(tonemapPassNode->GetPass(),
+                                     tonemapPassNode->GetEnabledPtr());
+      }
+    }
+    viewportPanel->SetHierarchyPanel(hierarchyPanel);
+    if (outlinePassNode) {
+      outlinePassNode->SetHierarchyPanel(hierarchyPanel);
+    }
+
+    if (gridPassNode) {
+      editorUI.AddViewToggle("Grid", gridPassNode->GetEnabledPtr());
+    }
+    if (outlinePassNode) {
+      editorUI.AddViewToggle("Outline", outlinePassNode->GetEnabledPtr());
+    }
+    if (shadowPassNode) {
+      editorUI.AddViewToggle("Shadows", shadowPassNode->GetEnabledPtr());
+    }
+    if (bloomPassNode) {
+      editorUI.AddViewToggle("Bloom", bloomPassNode->GetEnabledPtr());
+    }
+    if (tonemapPassNode) {
+      editorUI.AddViewToggle("Tonemap", tonemapPassNode->GetEnabledPtr());
+    }
 
     ConsolePanel::LogInfo("Editor UI initialized with %d panels", 5);
     ConsolePanel::LogInfo("Engine ready");
@@ -272,6 +389,7 @@ private:
     activeScene = std::make_unique<Scene>();
     hierarchyPanel->SetContext(activeScene.get());
     inspectorPanel->SetContext(activeScene.get(), hierarchyPanel);
+    viewportPanel->SetScene(activeScene.get());
 
     activeScene->AddSystem(std::make_shared<RenderSystem>());
     activeScene->AddSystem(std::make_shared<ParticleSystemRunner>());
@@ -333,19 +451,6 @@ private:
     if (window->IsKeyPressed(GLFW_KEY_ESCAPE))
       window->Close();
 
-    if (window->IsKeyPressed(GLFW_KEY_W))
-      camera.ProcessKeyboard(Camera::FORWARD, dt);
-    if (window->IsKeyPressed(GLFW_KEY_S))
-      camera.ProcessKeyboard(Camera::BACKWARD, dt);
-    if (window->IsKeyPressed(GLFW_KEY_A))
-      camera.ProcessKeyboard(Camera::LEFT, dt);
-    if (window->IsKeyPressed(GLFW_KEY_D))
-      camera.ProcessKeyboard(Camera::RIGHT, dt);
-    if (window->IsKeyPressed(GLFW_KEY_E))
-      camera.ProcessKeyboard(Camera::UP, dt);
-    if (window->IsKeyPressed(GLFW_KEY_Q))
-      camera.ProcessKeyboard(Camera::DOWN, dt);
-
     static bool pKeyPressed = false;
     bool pPressed = window->IsKeyPressed(GLFW_KEY_P);
     if (pPressed && !pKeyPressed) {
@@ -357,6 +462,41 @@ private:
   void Update(float dt) {
     if (activeScene)
       activeScene->OnUpdate(dt);
+  }
+
+  void ResolvePick() {
+    if (!pickingPassNode || !activeScene || !viewportPanel)
+      return;
+    PickingPass *pass = pickingPassNode->GetPass();
+    if (!pass || !pass->IsInitialized())
+      return;
+
+    uint32_t fbH = pass->GetHeight();
+    int localY = viewportPanel->GetPickY();
+    int glY = static_cast<int>(fbH) - 1 - localY;
+
+    uint32_t id = pass->ReadPixelId(viewportPanel->GetPickX(), glY);
+    if (id == PickingPass::kInvalidEntityId) {
+      if (hierarchyPanel)
+        hierarchyPanel->SetSelectedEntity(entt::null);
+      ConsolePanel::LogInfo("Pick: no entity under cursor");
+      return;
+    }
+
+    entt::entity picked = static_cast<entt::entity>(id);
+    auto &reg = activeScene->GetRegistry();
+    if (!reg.valid(picked)) {
+      ConsolePanel::LogWarn("Pick: decoded id %u is not a valid entity", id);
+      return;
+    }
+
+    if (hierarchyPanel)
+      hierarchyPanel->SetSelectedEntity(picked);
+
+    std::string tag = "Entity";
+    if (reg.any_of<TagComponent>(picked))
+      tag = reg.get<TagComponent>(picked).Tag;
+    ConsolePanel::LogInfo("Pick: entity id=%u (\"%s\")", id, tag.c_str());
   }
 
   void RenderScene() {
@@ -396,17 +536,47 @@ private:
         passDesc.clearDepthBuffer = true;
         passDesc.clearStencilBuffer = false;
 
+        passData.cmdList = cmdList;
+
+        // Shadow pass runs first and opens/closes its own render pass on the
+        // shadow FBO. Must happen BEFORE the scene pass begins so we don't
+        // nest render passes.
+        if (shadowPassNode) {
+          shadowPassNode->Execute(renderContext.get(), passData,
+                                  activeScene.get());
+        }
+
         cmdList->BeginRenderPass(passDesc);
         cmdList->SetViewport({0.0f, 0.0f, sceneFB->GetWidth(),
                               sceneFB->GetHeight(), 0.0f, 1.0f});
         cmdList->SetScissor({0, 0, static_cast<uint32_t>(sceneFB->GetWidth()),
                              static_cast<uint32_t>(sceneFB->GetHeight())});
 
-        passData.cmdList = cmdList;
-
         renderGraph->Execute(passData, activeScene.get());
 
         cmdList->EndRenderPass();
+
+        // Bloom runs after the scene pass ends: samples sceneFB color,
+        // builds its mip chain, and additively composites back into sceneFB.
+        if (bloomPassNode && bloomPassNode->IsEnabled()) {
+          bloomPassNode->GetPass()->Execute(
+              cmdList, sceneFB->GetTexture(), sceneFB->GetHandle(),
+              static_cast<uint32_t>(sceneFB->GetWidth()),
+              static_cast<uint32_t>(sceneFB->GetHeight()));
+        }
+
+        // Tonemap is the final pass: HDR sceneFB -> LDR displayFB via ACES
+        // Narkowicz + gamma. Viewport samples displayFB. When disabled, fall
+        // back to copying sceneFB straight through so viewport still shows
+        // something (raw HDR, will look washed out).
+        if (tonemapPassNode && tonemapPassNode->IsEnabled() && displayFB &&
+            displayFB->IsInitialized()) {
+          tonemapPassNode->GetPass()->Execute(
+              cmdList, sceneFB->GetTexture(), displayFB->GetHandle(),
+              static_cast<uint32_t>(displayFB->GetWidth()),
+              static_cast<uint32_t>(displayFB->GetHeight()));
+        }
+
         cmdList->End();
         rhiDevice->SubmitCommandList(cmdHandle);
       }

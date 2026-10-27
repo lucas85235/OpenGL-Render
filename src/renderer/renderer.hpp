@@ -48,6 +48,12 @@ private:
   RHI::TextureHandle iblBrdf;
   bool useIBL = false;
 
+  RHI::TextureHandle shadowMap;
+  glm::mat4 shadowLightSpace = glm::mat4(1.0f);
+  bool shadowEnabled = false;
+  float shadowBiasConstant = 0.0005f;
+  float shadowBiasSlope = 0.005f;
+
   void initRenderData() {
     if (!device)
       return;
@@ -156,6 +162,18 @@ public:
     useIBL = true;
   }
 
+  // Forwards the directional-light shadow map + its light-space matrix to the
+  // PBR shader. Task 5.5 extends with per-light bias values.
+  void SetShadow(RHI::TextureHandle map, const glm::mat4 &lightSpace,
+                 bool enabled, float biasConstant = 0.0005f,
+                 float biasSlope = 0.005f) {
+    shadowMap = map;
+    shadowLightSpace = lightSpace;
+    shadowEnabled = enabled && RHI::IsValid(map);
+    shadowBiasConstant = biasConstant;
+    shadowBiasSlope = biasSlope;
+  }
+
   void BeginScene(const glm::mat4 &view, const glm::mat4 &proj,
                   const glm::vec3 &camPos) {
     sceneData.viewMatrix = view;
@@ -257,6 +275,15 @@ public:
       activeShader->SetInt("irradianceMap", 10);
       activeShader->SetInt("prefilterMap", 11);
       activeShader->SetInt("brdfLUT", 12);
+    }
+
+    activeShader->SetBool("u_shadowEnabled", shadowEnabled);
+    if (shadowEnabled) {
+      cmdList->BindTexture(13, shadowMap);
+      activeShader->SetInt("shadowMap", 13);
+      activeShader->SetMat4("u_lightSpace", glm::value_ptr(shadowLightSpace));
+      activeShader->SetFloat("u_shadowBiasConstant", shadowBiasConstant);
+      activeShader->SetFloat("u_shadowBiasSlope", shadowBiasSlope);
     }
 
     // Bind pipeline before rendering

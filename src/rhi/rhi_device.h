@@ -128,6 +128,14 @@ public:
    */
   virtual uint64_t GetNativeTextureID(TextureHandle texture) const = 0;
 
+  /**
+   * @brief Returns the platform-native framebuffer ID (e.g. OpenGL GLuint FBO).
+   *        Required for raw-GL paths like glReadPixels on picking buffers.
+   * @return Native ID, or 0 if handle is invalid or not applicable.
+   */
+  virtual uint64_t
+  GetNativeFramebufferID(FramebufferHandle framebuffer) const = 0;
+
   // ========================================================================
   // SAMPLER MANAGEMENT
   // ========================================================================

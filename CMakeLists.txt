@@ -16,10 +16,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-O2 -w)
 endif()
 
+# MSVC: expose M_PI and related constants from <cmath>
+if(MSVC)
+    add_compile_definitions(_USE_MATH_DEFINES NOMINMAX _CRT_SECURE_NO_WARNINGS)
+endif()
+
 # ==========================================
 # Dependências (Substitui pkg-config manual)
 # ==========================================
-find_package(PkgConfig REQUIRED)
+# PkgConfig is only used as a fallback for SPIRV-Cross on Linux; not required on Windows.
+find_package(PkgConfig QUIET)
 
 # OpenGL
 find_package(OpenGL REQUIRED)
@@ -181,7 +187,7 @@ target_link_libraries(${EXECUTABLE_NAME} PRIVATE
     GLEW::GLEW
     Vulkan::Vulkan
     glfw
-    assimp
+    assimp::assimp
     glm::glm
     Threads::Threads
     ${CMAKE_DL_LIBS}

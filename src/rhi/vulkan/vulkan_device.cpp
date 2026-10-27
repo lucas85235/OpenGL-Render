@@ -1826,6 +1826,12 @@ uint64_t VulkanDevice::GetNativeTextureID(TextureHandle texture) const {
   return 0;
 }
 
+uint64_t
+VulkanDevice::GetNativeFramebufferID(FramebufferHandle /*framebuffer*/) const {
+  // Not meaningful for Vulkan (picking pass is OpenGL-only). Stub.
+  return 0;
+}
+
 void VulkanDevice::InitImGui(void *window) {
   ImGui_ImplVulkan_InitInfo init_info = {};
   init_info.Instance = instance;

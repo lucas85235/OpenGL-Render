@@ -303,6 +303,8 @@ public:
   void GenerateMipmaps(TextureHandle texture) override;
   void DestroyTexture(TextureHandle texture) override;
   uint64_t GetNativeTextureID(TextureHandle texture) const override;
+  uint64_t
+  GetNativeFramebufferID(FramebufferHandle framebuffer) const override;
 
   SamplerHandle CreateSampler(const SamplerDescriptor &desc) override;
   void DestroySampler(SamplerHandle sampler) override;

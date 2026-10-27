@@ -930,6 +930,13 @@ OpenGLDevice::CreateFramebuffer(const FramebufferDescriptor &desc) {
     }
   }
 
+  // Depth-only FBO (no color attachments) must disable draw/read buffers or
+  // the FBO is incomplete (default draw buffer = GL_COLOR_ATTACHMENT0).
+  if (desc.colorAttachments.empty()) {
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+  }
+
   if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
     std::cerr << "[OpenGL] Framebuffer is not complete!" << std::endl;
   }
@@ -1018,6 +1025,15 @@ void OpenGLDevice::DestroyFramebuffer(FramebufferHandle framebuffer) {
 
     framebuffers.erase(it);
   }
+}
+
+uint64_t
+OpenGLDevice::GetNativeFramebufferID(FramebufferHandle framebuffer) const {
+  auto it = framebuffers.find(framebuffer.id);
+  if (it != framebuffers.end()) {
+    return static_cast<uint64_t>(it->second.fbo);
+  }
+  return 0;
 }
 
 void OpenGLDevice::SetViewport(const Viewport &viewport) {

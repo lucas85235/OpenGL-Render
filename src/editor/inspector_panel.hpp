@@ -107,6 +107,14 @@ private:
                            100.0f);
           ImGui::DragFloat3("Direction", &component.direction[0], 0.01f, -1.0f,
                             1.0f);
+          ImGui::Separator();
+          ImGui::Checkbox("Cast Shadow", &component.castShadow);
+          ImGui::BeginDisabled(!component.castShadow);
+          ImGui::DragFloat("Bias Constant", &component.shadowBiasConstant,
+                           0.0001f, 0.0f, 0.05f, "%.4f");
+          ImGui::DragFloat("Bias Slope", &component.shadowBiasSlope, 0.0005f,
+                           0.0f, 0.1f, "%.4f");
+          ImGui::EndDisabled();
         });
 
     DrawComponent<PointLightComponent>(

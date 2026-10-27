@@ -161,6 +161,8 @@ public:
   void ResizeFramebuffer(FramebufferHandle framebuffer, uint32_t width,
                          uint32_t height) override;
   void DestroyFramebuffer(FramebufferHandle framebuffer) override;
+  uint64_t
+  GetNativeFramebufferID(FramebufferHandle framebuffer) const override;
 
   CommandListHandle CreateCommandList() override;
   ICommandList *GetCommandList(CommandListHandle handle) override;

@@ -2,9 +2,11 @@
 #define COMPONENTS_HPP
 
 #include "../renderer/model.hpp"
+#include <entt/entt.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <string>
+#include <vector>
 
 // ==========================================
 // 1. TRANSFORM (Dados espaciais)
@@ -13,6 +15,9 @@ struct TransformComponent {
   glm::vec3 Position = glm::vec3(0.0f);
   glm::vec3 Rotation = glm::vec3(0.0f); // Euler angles
   glm::vec3 Scale = glm::vec3(1.0f);
+
+  entt::entity Parent = entt::null;
+  std::vector<entt::entity> Children;
 
   TransformComponent() = default;
   TransformComponent(const TransformComponent &) = default;
@@ -26,6 +31,16 @@ struct TransformComponent {
     model = glm::rotate(model, glm::radians(Rotation.z), glm::vec3(0, 0, 1));
     model = glm::scale(model, Scale);
     return model;
+  }
+
+  glm::mat4 GetWorldMatrix(const entt::registry &registry) const {
+    glm::mat4 local = GetMatrix();
+    if (Parent == entt::null || !registry.valid(Parent) ||
+        !registry.all_of<TransformComponent>(Parent)) {
+      return local;
+    }
+    return registry.get<TransformComponent>(Parent).GetWorldMatrix(registry) *
+           local;
   }
 };
 
@@ -88,6 +103,13 @@ struct DirectionalLightComponent {
   glm::vec3 color = glm::vec3(1.0f);
   float intensity = 1.0f;
   glm::vec3 direction = glm::vec3(-0.2f, -1.0f, -0.3f); // Default direction
+
+  // Shadow controls (task 5.5). castShadow gates the ShadowPass per-light;
+  // bias values feed the PCF sampler in pbr_opengl — slope term scales with
+  // 1-NdotL to fight acne on grazing angles, constant term is the floor.
+  bool castShadow = true;
+  float shadowBiasConstant = 0.0005f;
+  float shadowBiasSlope = 0.005f;
 
   DirectionalLightComponent() = default;
   DirectionalLightComponent(const DirectionalLightComponent &) = default;

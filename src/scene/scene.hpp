@@ -1,6 +1,7 @@
 #ifndef SCENE_SYSTEM_HPP
 #define SCENE_SYSTEM_HPP
 
+#include <algorithm>
 #include <entt/entt.hpp>
 #include <iostream>
 #include <memory>
@@ -117,7 +118,31 @@ inline Entity Scene::CreateEntity(const std::string &name) {
   return entity;
 }
 
-inline void Scene::DestroyEntity(Entity entity) { registry.destroy(entity); }
+inline void Scene::DestroyEntity(Entity entity) {
+  entt::entity handle = (entt::entity)entity;
+  if (!registry.valid(handle)) return;
+
+  if (registry.all_of<TransformComponent>(handle)) {
+    auto &tc = registry.get<TransformComponent>(handle);
+
+    // Destroy children recursively (snapshot — list mutates via Parent detach)
+    auto childrenCopy = tc.Children;
+    for (auto child : childrenCopy) {
+      if (registry.valid(child))
+        DestroyEntity(Entity{child, this});
+    }
+
+    // Detach from parent so its Children vec doesn't dangle
+    if (tc.Parent != entt::null && registry.valid(tc.Parent) &&
+        registry.all_of<TransformComponent>(tc.Parent)) {
+      auto &parentTc = registry.get<TransformComponent>(tc.Parent);
+      auto &kids = parentTc.Children;
+      kids.erase(std::remove(kids.begin(), kids.end(), handle), kids.end());
+    }
+  }
+
+  registry.destroy(handle);
+}
 
 inline Entity Scene::FindEntity(const std::string &name) {
   auto view = registry.view<TagComponent>();
@@ -155,5 +180,6 @@ inline void Scene::OnRender(Renderer &renderer) {
 }
 
 #include "scriptable_entity.hpp"
+#include "scene_serializer.hpp"
 
 #endif

@@ -4,7 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-enum class CameraMode { FPS, ORBIT };
+enum class CameraMode { FPS, ORBIT, FLY };
 
 enum class ProjectionType { PERSPECTIVE, ORTHOGRAPHIC };
 
@@ -83,6 +83,24 @@ public:
     }
   }
 
+  void SetOrbit(const glm::vec3 &target, float radius, float yawDeg,
+                float pitchDeg) {
+    mode = CameraMode::ORBIT;
+    orbitTarget = target;
+    orbitDistance = glm::max(radius, 0.001f);
+    yaw = yawDeg;
+    pitch = glm::clamp(pitchDeg, -89.0f, 89.0f);
+    updateOrbitPosition();
+  }
+
+  void SetFly(const glm::vec3 &pos, float yawDeg, float pitchDeg) {
+    mode = CameraMode::FLY;
+    position = pos;
+    yaw = yawDeg;
+    pitch = glm::clamp(pitchDeg, -89.0f, 89.0f);
+    updateVectors();
+  }
+
   void SetProjectionType(ProjectionType type) { projectionType = type; }
 
   void ToggleProjection() {
@@ -102,7 +120,7 @@ public:
   void ProcessKeyboard(Movement direction, float deltaTime) {
     float velocity = movementSpeed * deltaTime;
 
-    if (mode == CameraMode::FPS) {
+    if (mode == CameraMode::FPS || mode == CameraMode::FLY) {
       switch (direction) {
       case FORWARD:
         position += front * velocity;
@@ -173,6 +191,9 @@ public:
       orbitDistance -= yOffset;
       orbitDistance = glm::max(orbitDistance, 1.0f);
       updateOrbitPosition();
+    } else if (mode == CameraMode::FLY) {
+      movementSpeed *= pow(1.1f, yOffset);
+      movementSpeed = glm::clamp(movementSpeed, 0.1f, 200.0f);
     } else {
       fov -= yOffset;
       fov = glm::clamp(fov, 1.0f, 120.0f);

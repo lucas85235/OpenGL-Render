@@ -121,6 +121,15 @@ uniform samplerCube prefilterMap;
 uniform sampler2D brdfLUT;
 uniform bool useIBL;
 
+// Task 5.3: directional-light shadow map + light-space matrix.
+// Declared and populated every frame; sampling in the fragment stage is
+// deferred to task 5.4 (PCF 3x3).
+uniform mat4 u_lightSpace;
+uniform sampler2D shadowMap;
+uniform bool u_shadowEnabled;
+uniform float u_shadowBiasConstant;
+uniform float u_shadowBiasSlope;
+
 #pragma end(resources)
 
 //--------------------------------------------------------------------
@@ -135,15 +144,17 @@ layout(location = 2) in vec2 aTexCoords;
 out vec3 FragPos;
 out vec3 Normal;
 out vec2 TexCoords;
+out vec4 FragPosLightSpace;
 
 void main() {
     vec4 worldPos = model * vec4(aPos, 1.0);
     FragPos = worldPos.xyz;
-    
+
     mat3 normalMatrix = transpose(inverse(mat3(model)));
     Normal = normalMatrix * aNormal;
     TexCoords = aTexCoords;
-    
+    FragPosLightSpace = u_lightSpace * worldPos;
+
     gl_Position = projection * view * worldPos;
 }
 
@@ -157,8 +168,34 @@ void main() {
 in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoords;
+in vec4 FragPosLightSpace;
 
 out vec4 FragColor;
+
+float SampleShadowPCF(vec3 N, vec3 L) {
+    if (!u_shadowEnabled) return 1.0;
+
+    vec3 proj = FragPosLightSpace.xyz / FragPosLightSpace.w;
+    proj = proj * 0.5 + 0.5;
+
+    if (proj.z > 1.0) return 1.0;
+    if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
+
+    float NdotL = max(dot(N, L), 0.0);
+    float bias = max(u_shadowBiasSlope * (1.0 - NdotL), u_shadowBiasConstant);
+
+    float currentDepth = proj.z - bias;
+    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+
+    float visibility = 0.0;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            float pcfDepth = texture(shadowMap, proj.xy + vec2(x, y) * texelSize).r;
+            visibility += currentDepth <= pcfDepth ? 1.0 : 0.0;
+        }
+    }
+    return visibility / 9.0;
+}
 
 void main() {
     vec2 uv = TexCoords;
@@ -189,7 +226,8 @@ void main() {
     {
         vec3 L = normalize(-dirLight.direction);
         vec3 radiance = dirLight.color * dirLight.intensity;
-        Lo += CalcPBRLight(L, V, N, F0, albedo, metallic, roughness, radiance);
+        float shadow = SampleShadowPCF(N, L);
+        Lo += CalcPBRLight(L, V, N, F0, albedo, metallic, roughness, radiance) * shadow;
     }
     
     // Point lights
@@ -231,10 +269,8 @@ void main() {
     emission *= material.emissionStrength;
     
     vec3 color = ambient + Lo + emission;
-    
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
-    
+
+    // Tonemap + gamma applied by TonemapPass at end of frame.
     FragColor = vec4(color, 1.0);
 }
 

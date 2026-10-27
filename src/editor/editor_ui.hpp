@@ -17,6 +17,7 @@ class EditorUI {
 private:
 private:
   std::vector<std::unique_ptr<IEditorPanel>> panels;
+  std::vector<std::pair<std::string, bool *>> viewToggles;
   bool initialized = false;
   bool showDemoWindow = false;
   RHI::IDevice *rhiDevice = nullptr;
@@ -99,6 +100,12 @@ public:
     return ptr;
   }
 
+  // Register a named bool toggle in the View menu (e.g. renderer features).
+  void AddViewToggle(const char *name, bool *value) {
+    if (name && value)
+      viewToggles.emplace_back(name, value);
+  }
+
   void Update(float dt) {
     for (auto &panel : panels) {
       panel->OnUpdate(dt);
@@ -179,6 +186,12 @@ private:
           bool vis = panel->IsVisible();
           if (ImGui::MenuItem(panel->GetName(), nullptr, &vis)) {
             panel->SetVisible(vis);
+          }
+        }
+        if (!viewToggles.empty()) {
+          ImGui::Separator();
+          for (auto &t : viewToggles) {
+            ImGui::MenuItem(t.first.c_str(), nullptr, t.second);
           }
         }
         ImGui::Separator();
